@@ -1,0 +1,27 @@
+body {
+    width: 100vw;
+    height: 100vh;
+    background-color: #FECC00;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+}
+
+input {
+    border: 1px solid black;
+    padding: 15px 150px;
+}
+
+input[type="button"] {
+    background-color: #FECC00;
+    border: 1px solid black;
+    border-radius: 5px;
+    width: 100px;
+    height: 30px;
+}
+
+input[type="button"]:active {
+    background-color: #c29b00;
+}
