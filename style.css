@@ -6,7 +6,7 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 20px;
+    gap: 5px;
 }
 
 input {
@@ -14,14 +14,12 @@ input {
     padding: 15px 150px;
 }
 
-input[type="button"] {
+button {
     background-color: #FECC00;
     border: 1px solid black;
-    border-radius: 5px;
     width: 100px;
-    height: 30px;
+    height: 48px;
 }
 
-input[type="button"]:active {
-    background-color: #c29b00;
-}
+button:hover { background-color: #eebf01; }
+button:active { background-color: #e4b600; }
