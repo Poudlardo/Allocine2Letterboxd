@@ -11,7 +11,7 @@ const getAllPages = async () => {
   const page = await browser.newPage();
 
   // COPIE LE LIEN VERS TON PROFIL ICI, ENTRE LES DEUX GUILLEMETS " "
-  const UrlProfil = "https://www.allocine.fr/membre-Z20220820103049710645480/films/envie-de-voir/"
+  const UrlProfil = "TON_PROFIL" // type : https://www.allocine.fr/membre-Z20220820103049710645480/films/
 
   await page.goto(UrlProfil, {
     waitUntil: "domcontentloaded",
