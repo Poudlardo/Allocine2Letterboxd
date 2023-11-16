@@ -4,6 +4,7 @@ Script qui permet d'importer sur Letterboxd sa liste de films vus et notés sur 
 <p align="center">
 <img src="https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/main/csv%20converter.png" width="350" />
 </p>
+
 ## Prérequis
 
 - [Node.js](https://nodejs.org/en/download/)
