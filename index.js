@@ -11,7 +11,7 @@ const getAllPages = async () => {
   const page = await browser.newPage();
 
   // COPIE LE LIEN VERS TON PROFIL ICI, ENTRE LES DEUX GUILLEMETS " "
-  const UrlProfil = "TON_PROFIL"
+  const UrlProfil = "https://www.allocine.fr/membre-Z20220820103049710645480/films/envie-de-voir/"
 
   await page.goto(UrlProfil, {
     waitUntil: "domcontentloaded",
@@ -29,18 +29,31 @@ const getAllPages = async () => {
 
   }
 
-  let csvContent = "Title,Rating\n";
-
   let myJsonString = JSON.stringify(tousLesFilms);
   let data = JSON.parse(myJsonString);
-  
-  data.forEach( film => {
-    csvContent += film.Title + `, `;
-    csvContent += film.Rating + "\n";
-  })
-  
-  console.log('@success', csvContent);
-  fs.writeFileSync("films-vus.csv", csvContent, 'utf-8')
+  let regex = new RegExp('envie-de-voir');
+
+  if (regex.test(UrlProfil)) {
+    let csvContent = "Title\n";
+
+    data.forEach( film => {
+      csvContent += film.Title + "\n";
+    })
+    
+    console.log('@success', csvContent);
+    fs.writeFileSync("films-a-voir.csv", csvContent, 'utf-8')
+  } else {
+    let csvContent = "Title,Rating\n";
+
+    data.forEach( film => {
+      csvContent += film.Title + `, `;
+      csvContent += film.Rating + "\n";
+    })
+    
+    console.log('@success', csvContent);
+    fs.writeFileSync("films-vus.csv", csvContent, 'utf-8')
+  }
+
 
   };
 
@@ -52,11 +65,15 @@ async function extraireTitresEtNotes(page) {
     const filmsList = document.querySelectorAll(".thumbnail");
 
     Array.from(filmsList).map((film) => {
+      const Title = film.querySelector(".thumbnail-img").alt;
+      if(film.querySelector(".rating-mdl")) {
+        const rawNote = film.querySelector(".rating-mdl").className.slice(12,14)
+        const Rating = rawNote.substring(0,1)+"."+rawNote.substring(1,2)
+        data.push({ Title, Rating });
+      } else {
+        data.push({ Title });
+      }
 
-    const Title = film.querySelector(".thumbnail-img").alt;
-    const rawNote = film.querySelector(".rating-mdl").className.slice(12,14)
-    const Rating = rawNote.substring(0,1)+"."+rawNote.substring(1,2)
-    data.push({ Title, Rating });
     });
     return data;
   });
