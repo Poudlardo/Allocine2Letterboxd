@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 import { Browser as SupportedBrowser, resolveBuildId, detectBrowserPlatform, getInstalledBrowsers, uninstall, } from '@puppeteer/browsers';
-import { Puppeteer, } from '../cdp/Puppeteer.js';
+import { Puppeteer } from '../common/Puppeteer.js';
 import { PUPPETEER_REVISIONS } from '../revisions.js';
 import { ChromeLauncher } from './ChromeLauncher.js';
 import { FirefoxLauncher } from './FirefoxLauncher.js';
@@ -128,7 +128,7 @@ export class PuppeteerNode extends Puppeteer {
      * for a description of the differences between Chromium and Chrome.
      * {@link https://chromium.googlesource.com/chromium/src/+/lkgr/docs/chromium_browser_vs_google_chrome.md | This article}
      * describes some differences for Linux users. See
-     * {@link https://goo.gle/chrome-for-testing | this doc} for the description
+     * {@link https://developer.chrome.com/blog/chrome-for-testing/ | this doc} for the description
      * of Chrome for Testing.
      *
      * @param options - Options to configure launching behavior.

@@ -11,7 +11,7 @@ const getAllPages = async () => {
   const page = await browser.newPage();
 
   // COPIE LE LIEN VERS TON PROFIL ICI, ENTRE LES DEUX GUILLEMETS " "
-  const UrlProfil = "https://www.allocine.fr/membre-Z20220820103049710645480/films/"
+  const UrlProfil = "https://www.allocine.fr/membre-Z20090805125911913557892/films/"
 
   await page.goto(UrlProfil, {
     waitUntil: "domcontentloaded",
@@ -20,7 +20,7 @@ const getAllPages = async () => {
   let tousLesFilms = []; 
 
   const dernierePage = await page.evaluate(el => el.innerText.match(/\d+/), (await page.$$('.pagination-item-holder > a:last-child'))[0])
-  console.log(dernierePage)
+
   for (let index = 1; index <= dernierePage; index++) {
     await page.goto(UrlProfil+"?page="+index, {
     waitUntil: "domcontentloaded",
@@ -29,11 +29,9 @@ const getAllPages = async () => {
 
   }
 
-  let myJsonString = JSON.stringify(tousLesFilms);
 
   // modifier l'url & le click 
   let UrlCritique = UrlProfil.replace('films/','critiques/films/');
-  console.log(UrlCritique)
 
   await page.goto(UrlCritique, {
     waitUntil: "domcontentloaded",
@@ -46,11 +44,14 @@ const getAllPages = async () => {
     await page.goto(UrlCritique+"?page="+index, {
     waitUntil: "domcontentloaded",
   })
+    console.log(UrlCritique+"?page="+index)
     Critiques = Critiques.concat(await extraireCritiques(page))
   }
 
  // après ça, unifier les critiques de film avec les films déjà scrapés dans myJsonString
+  console.log('tout les films :',tousLesFilms, 'critique : ',Critiques)
 
+  let myJsonString = JSON.stringify(tousLesFilms);
   let data = JSON.parse(myJsonString);
   let regex = new RegExp('envie-de-voir');
 
@@ -62,7 +63,6 @@ const getAllPages = async () => {
       csvContent += film.Title + "\n";
     })
     
-    console.log('@success', csvContent);
     fs.writeFileSync("films-a-voir.csv", csvContent, 'utf-8')
   } else {
     // pour générer une liste de films vus
@@ -73,10 +73,8 @@ const getAllPages = async () => {
       csvContent += film.Rating + "\n";
     })
     
-    console.log('@success', csvContent);
     fs.writeFileSync("films-vus.csv", csvContent, 'utf-8')
   }
-
 
   };
 
@@ -107,25 +105,30 @@ async function extraireCritiques(page) {
   return page.evaluate(() => { 
     let data = [];
   // Wait and click on first result
-  const critiquesFilms = document.querySelectorAll(".review-card-content");
+  const critiquesFilms = document.querySelectorAll(".review-card");
 
   Array.from(critiquesFilms).map((critique) => {
-      const LirePlus = critique.querySelector('a');
-      if (LirePlus) {
-        // await page.click(LirePlus); // cliquer sur 'Lire Plus' pour afficher une nouvelle page
-        const Title = document.querySelector('review-card-title > a').innerHTML;
-        const Review = critique.innerText;
-        data.push({Title, Review})
-      } else {
-        const Title = document.querySelector('review-card-title > a').innerHTML;
-        const Review = critique.innerText;
-        data.push({Title, Review})
-      }
+      const LirePlus = critique.querySelector('.review-card-review-holder > .content-txt.review-card-content > a')
+      
+    if (LirePlus == null){
+        const Title = critique.querySelector('.review-card-title-bar > .review-card-title > a');
+        const Titre = Title.innerText;
+        const reviewContainer = critique.querySelector('.review-card-review-holder > .content-txt.review-card-content')
+        const Review = reviewContainer.innerText;
+        data.push({Titre, Review})
+    } else if (LirePlus !== null) {
+        const page = browser.newPage();
+        page.waitForSelector(LirePlus.href);
+        page.click(LirePlus);
+        const Title = critique.querySelector('.review-card-title-bar > .review-card-title > a');
+        const Titre = Title.innerText;
+        const reviewContainer = critique.querySelector('.review-card-review-holder > .content-txt.review-card-content');
+        const Review = reviewContainer.innerText;
+        data.push({Titre, Review})
+    }
     })
-  return data;
+    return data;
   })
-
-
 
 }
 
