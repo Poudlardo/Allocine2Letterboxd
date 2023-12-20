@@ -11,7 +11,7 @@ const getAllPages = async () => {
   const page = await browser.newPage();
 
   // COPIE LE LIEN VERS TON PROFIL ICI, ENTRE LES DEUX GUILLEMETS " "
-  const UrlProfil = "TON_PROFIL" // type : https://www.allocine.fr/membre-Z20220820103049710645480/films/
+  const UrlProfil = "https://www.allocine.fr/membre-Z20220820103049710645480/films/"
 
   await page.goto(UrlProfil, {
     waitUntil: "domcontentloaded",
@@ -30,10 +30,32 @@ const getAllPages = async () => {
   }
 
   let myJsonString = JSON.stringify(tousLesFilms);
+
+  // modifier l'url & le click 
+  let UrlCritique = UrlProfil.replace('films/','critiques/films/');
+  console.log(UrlCritique)
+
+  await page.goto(UrlCritique, {
+    waitUntil: "domcontentloaded",
+  });
+
+  let Critiques = []; 
+  // for loop -> if ("Lire Plus") { click page puis, selection du titre film + text push dans myJsonString}
+  for (let index = 1; index <= dernierePage; index++) {
+    
+    await page.goto(UrlCritique+"?page="+index, {
+    waitUntil: "domcontentloaded",
+  })
+    Critiques = Critiques.concat(await extraireCritiques(page))
+  }
+
+ // après ça, unifier les critiques de film avec les films déjà scrapés dans myJsonString
+
   let data = JSON.parse(myJsonString);
   let regex = new RegExp('envie-de-voir');
 
   if (regex.test(UrlProfil)) {
+    // pour générer une liste de films à voir (watchlist)
     let csvContent = "Title\n";
 
     data.forEach( film => {
@@ -43,6 +65,7 @@ const getAllPages = async () => {
     console.log('@success', csvContent);
     fs.writeFileSync("films-a-voir.csv", csvContent, 'utf-8')
   } else {
+    // pour générer une liste de films vus
     let csvContent = "Title,Rating\n";
 
     data.forEach( film => {
@@ -78,5 +101,33 @@ async function extraireTitresEtNotes(page) {
     return data;
   });
 }
+
+async function extraireCritiques(page) {
+
+  return page.evaluate(() => { 
+    let data = [];
+  // Wait and click on first result
+  const critiquesFilms = document.querySelectorAll(".review-card-content");
+
+  Array.from(critiquesFilms).map((critique) => {
+      const LirePlus = critique.querySelector('a');
+      if (LirePlus) {
+        // await page.click(LirePlus); // cliquer sur 'Lire Plus' pour afficher une nouvelle page
+        const Title = document.querySelector('review-card-title > a').innerHTML;
+        const Review = critique.innerText;
+        data.push({Title, Review})
+      } else {
+        const Title = document.querySelector('review-card-title > a').innerHTML;
+        const Review = critique.innerText;
+        data.push({Title, Review})
+      }
+    })
+  return data;
+  })
+
+
+
+}
+
 
 getAllPages();
