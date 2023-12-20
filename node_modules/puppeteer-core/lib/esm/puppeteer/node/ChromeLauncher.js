@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 import { mkdtemp } from 'fs/promises';
+import os from 'os';
 import path from 'path';
 import { computeSystemExecutablePath, Browser as SupportedBrowsers, ChromeReleaseChannel as BrowsersChromeReleaseChannel, } from '@puppeteer/browsers';
 import { debugError } from '../common/util.js';
@@ -41,6 +42,21 @@ export class ChromeLauncher extends ProductLauncher {
                 '  Consider opting in early by passing `headless: "new"` to `puppeteer.launch()`',
                 '  If you encounter any bugs, please report them to https://github.com/puppeteer/puppeteer/issues/new/choose.\x1B[0m\n',
             ].join('\n  '));
+        }
+        if (this.puppeteer.configuration.logLevel === 'warn' &&
+            process.platform === 'darwin' &&
+            process.arch === 'x64') {
+            const cpus = os.cpus();
+            if (cpus[0]?.model.includes('Apple')) {
+                console.warn([
+                    '\x1B[1m\x1B[43m\x1B[30m',
+                    'Degraded performance warning:\x1B[0m\x1B[33m',
+                    'Launching Chrome on Mac Silicon (arm64) from an x64 Node installation results in',
+                    'Rosetta translating the Chrome binary, even if Chrome is already arm64. This would',
+                    'result in huge performance issues. To resolve this, you must run Puppeteer with',
+                    'a version of Node built for arm64.',
+                ].join('\n  '));
+            }
         }
         return super.launch(options);
     }
@@ -149,8 +165,9 @@ export class ChromeLauncher extends ProductLauncher {
             '--disable-default-apps',
             '--disable-dev-shm-usage',
             '--disable-extensions',
-            `--disable-features=${disabledFeatures.join(',')}`,
+            '--disable-field-trial-config',
             '--disable-hang-monitor',
+            '--disable-infobars',
             '--disable-ipc-flooding-protection',
             '--disable-popup-blocking',
             '--disable-prompt-on-repost',
@@ -158,16 +175,14 @@ export class ChromeLauncher extends ProductLauncher {
             '--disable-search-engine-choice-screen',
             '--disable-sync',
             '--enable-automation',
-            // TODO(sadym): remove '--enable-blink-features=IdleDetection' once
-            // IdleDetection is turned on by default.
-            '--enable-blink-features=IdleDetection',
-            `--enable-features=${enabledFeatures.join(',')}`,
             '--export-tagged-pdf',
             '--force-color-profile=srgb',
             '--metrics-recording-only',
             '--no-first-run',
             '--password-store=basic',
             '--use-mock-keychain',
+            `--disable-features=${disabledFeatures.join(',')}`,
+            `--enable-features=${enabledFeatures.join(',')}`,
         ];
         const { devtools = false, headless = !devtools, args = [], userDataDir, } = options;
         if (userDataDir) {
