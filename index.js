@@ -26,7 +26,6 @@ const getAllPages = async () => {
     waitUntil: "domcontentloaded",
   })
       tousLesFilms = tousLesFilms.concat(await extraireTitresEtNotes(page));
-
   }
 
 
@@ -38,6 +37,7 @@ const getAllPages = async () => {
   });
 
   let Critiques = []; 
+  let LirePlus = [];
   // for loop -> if ("Lire Plus") { click page puis, selection du titre film + text push dans myJsonString}
   for (let index = 1; index <= dernierePage; index++) {
     
@@ -46,10 +46,21 @@ const getAllPages = async () => {
   })
     console.log(UrlCritique+"?page="+index)
     Critiques = Critiques.concat(await extraireCritiques(page))
+    LirePlus = LirePlus.concat(await extraireLienLirePlus(page))
+  }
+
+  for (let i = 0; i < LirePlus.length; i++) {
+    await page.goto(LirePlus[i], {
+      waitUntil: "domcontentloaded",
+    })
+    Critiques = Critiques.concat(await extraireCritiques(page))
   }
 
  // après ça, unifier les critiques de film avec les films déjà scrapés dans myJsonString
+
   console.log('tout les films :',tousLesFilms, 'critique : ',Critiques)
+
+
 
   let myJsonString = JSON.stringify(tousLesFilms);
   let data = JSON.parse(myJsonString);
@@ -66,7 +77,7 @@ const getAllPages = async () => {
     fs.writeFileSync("films-a-voir.csv", csvContent, 'utf-8')
   } else {
     // pour générer une liste de films vus
-    let csvContent = "Title,Rating\n";
+    let csvContent = "Title,Rating,Review\n";
 
     data.forEach( film => {
       csvContent += film.Title + `, `;
@@ -101,28 +112,17 @@ async function extraireTitresEtNotes(page) {
 }
 
 async function extraireCritiques(page) {
-
-  return page.evaluate(() => { 
+return page.evaluate(() => { 
     let data = [];
   // Wait and click on first result
   const critiquesFilms = document.querySelectorAll(".review-card");
 
-  Array.from(critiquesFilms).map((critique) => {
+  Array.from(critiquesFilms).map(async (critique) => {
       const LirePlus = critique.querySelector('.review-card-review-holder > .content-txt.review-card-content > a')
-      
-    if (LirePlus == null){
+  if (LirePlus == null){
         const Title = critique.querySelector('.review-card-title-bar > .review-card-title > a');
         const Titre = Title.innerText;
         const reviewContainer = critique.querySelector('.review-card-review-holder > .content-txt.review-card-content')
-        const Review = reviewContainer.innerText;
-        data.push({Titre, Review})
-    } else if (LirePlus !== null) {
-        const page = browser.newPage();
-        page.waitForSelector(LirePlus.href);
-        page.click(LirePlus);
-        const Title = critique.querySelector('.review-card-title-bar > .review-card-title > a');
-        const Titre = Title.innerText;
-        const reviewContainer = critique.querySelector('.review-card-review-holder > .content-txt.review-card-content');
         const Review = reviewContainer.innerText;
         data.push({Titre, Review})
     }
@@ -132,5 +132,22 @@ async function extraireCritiques(page) {
 
 }
 
+async function extraireLienLirePlus(page) {
 
+  return page.evaluate(() => { 
+      let ArrayLirePlus = [];
+    // Wait and click on first result
+    const critiquesFilms = document.querySelectorAll(".review-card");
+  
+    Array.from(critiquesFilms).map(async (critique) => {
+        const LirePlus = critique.querySelector('.review-card-review-holder > .content-txt.review-card-content > a')
+    if (LirePlus !== null){
+          ArrayLirePlus.push(LirePlus.href)
+      }
+      })
+      return ArrayLirePlus;
+    })
+  
+  }
+  
 getAllPages();
