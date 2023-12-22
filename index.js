@@ -48,7 +48,7 @@ const getAllPages = async () => {
     Critiques = Critiques.concat(await extraireCritiques(page))
     LirePlus = LirePlus.concat(await extraireLienLirePlus(page))
   }
-  console.log(Critiques)
+
   for (let i = 0; i < LirePlus.length; i++) {
     await page.goto(LirePlus[i], {
       waitUntil: "domcontentloaded",
@@ -56,11 +56,11 @@ const getAllPages = async () => {
     Critiques = Critiques.concat(await extraireCritiques(page))
   }
 
-
   let myJsonString = JSON.stringify(unifierCritiquesEtFilms(tousLesFilms,Critiques));
-  let data = JSON.parse(myJsonString);
-  let regex = new RegExp('envie-de-voir');
 
+  let data = JSON.parse(myJsonString);
+
+  let regex = new RegExp('envie-de-voir');
   if (regex.test(UrlProfil)) {
     // pour générer une liste de films à voir (watchlist)
     let csvContent = "Title\n";
@@ -75,11 +75,11 @@ const getAllPages = async () => {
     let csvContent = "Title,Rating,Review\n";
 
     data.forEach( film => {
-      csvContent += film.Title + `, `;
-      csvContent += film.Rating + `, `;
-      csvContent += film.Review + "\n";
+      csvContent += `"${film.Title}"` + ",";
+      csvContent += `"${film.Rating}"` + ",";
+      csvContent += `"${film.Review}"` + "\n";
     })
-    
+    console.log("csvContent :",csvContent)
     fs.writeFileSync("films-vus.csv", csvContent, 'utf-8')
   }
 
@@ -120,7 +120,7 @@ return page.evaluate(() => {
         const Titre = Title.innerText;
         const reviewContainer = critique.querySelector('.review-card-review-holder > .content-txt.review-card-content')
         const Rvw = reviewContainer.textContent;
-        const Review = Rvw.replaceAll('\n', '');
+        const Review = Rvw.replaceAll("\n", "");
         data.push({Titre, Review});
     }
     })
