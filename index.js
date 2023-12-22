@@ -48,7 +48,7 @@ const getAllPages = async () => {
     Critiques = Critiques.concat(await extraireCritiques(page))
     LirePlus = LirePlus.concat(await extraireLienLirePlus(page))
   }
-
+  console.log(Critiques)
   for (let i = 0; i < LirePlus.length; i++) {
     await page.goto(LirePlus[i], {
       waitUntil: "domcontentloaded",
@@ -56,13 +56,8 @@ const getAllPages = async () => {
     Critiques = Critiques.concat(await extraireCritiques(page))
   }
 
- // après ça, unifier les critiques de film avec les films déjà scrapés dans myJsonString
 
-  console.log('tout les films :',tousLesFilms, 'critique : ',Critiques)
-
-
-
-  let myJsonString = JSON.stringify(tousLesFilms);
+  let myJsonString = JSON.stringify(unifierCritiquesEtFilms(tousLesFilms,Critiques));
   let data = JSON.parse(myJsonString);
   let regex = new RegExp('envie-de-voir');
 
@@ -81,7 +76,8 @@ const getAllPages = async () => {
 
     data.forEach( film => {
       csvContent += film.Title + `, `;
-      csvContent += film.Rating + "\n";
+      csvContent += film.Rating + `, `;
+      csvContent += film.Review + "\n";
     })
     
     fs.writeFileSync("films-vus.csv", csvContent, 'utf-8')
@@ -123,8 +119,9 @@ return page.evaluate(() => {
         const Title = critique.querySelector('.review-card-title-bar > .review-card-title > a');
         const Titre = Title.innerText;
         const reviewContainer = critique.querySelector('.review-card-review-holder > .content-txt.review-card-content')
-        const Review = reviewContainer.innerText;
-        data.push({Titre, Review})
+        const Rvw = reviewContainer.textContent;
+        const Review = Rvw.replaceAll('\n', '');
+        data.push({Titre, Review});
     }
     })
     return data;
@@ -149,5 +146,16 @@ async function extraireLienLirePlus(page) {
     })
   
   }
+
+function unifierCritiquesEtFilms(arr1,arr2) {
+  for (let i = 0; i < arr2.length; i++) {
+    for (let j = 0; j < arr1.length; j++) {
+      if (arr1[j].Title == arr2[i].Titre) {
+        arr1[j].Review = arr2[i].Review;
+      }
+    }
+  }
+  return arr1;
+}
   
 getAllPages();
