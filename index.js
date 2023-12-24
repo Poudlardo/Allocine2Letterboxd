@@ -11,7 +11,7 @@ const getAllPages = async () => {
   const page = await browser.newPage();
 
   // COPIE LE LIEN VERS TON PROFIL ICI, ENTRE LES DEUX GUILLEMETS " "
-  const UrlProfil = "https://www.allocine.fr/membre-Z20090805125911913557892/films/"
+  const UrlProfil = "https://www.allocine.fr/membre-Z20230721220027445492131/films/"
 
   await page.goto(UrlProfil, {
     waitUntil: "domcontentloaded",
@@ -28,37 +28,18 @@ const getAllPages = async () => {
       tousLesFilms = tousLesFilms.concat(await extraireTitresEtNotes(page));
   }
 
-
-  // modifier l'url & le click 
-  let UrlCritique = UrlProfil.replace('films/','critiques/films/');
-
-  await page.goto(UrlCritique, {
-    waitUntil: "domcontentloaded",
+  const elementExists = await page.evaluate(() => {
+    return document.querySelector('.item.js-item-mq-medium.inactive') !== null;
   });
-
-  let Critiques = []; 
-  let LirePlus = [];
-  // for loop -> if ("Lire Plus") { click page puis, selection du titre film + text push dans myJsonString}
-  for (let index = 1; index <= dernierePage; index++) {
-    
-    await page.goto(UrlCritique+"?page="+index, {
-    waitUntil: "domcontentloaded",
-  })
-    console.log(UrlCritique+"?page="+index)
-    Critiques = Critiques.concat(await extraireCritiques(page))
-    LirePlus = LirePlus.concat(await extraireLienLirePlus(page))
+  
+  let data = [];
+  if (elementExists) {
+    let myJsonString = JSON.stringify(tousLesFilms);
+    data = JSON.parse(myJsonString);
+  } else {
+    data = JSON.parse(await getCritiques(page,UrlProfil,dernierePage, tousLesFilms));
   }
-
-  for (let i = 0; i < LirePlus.length; i++) {
-    await page.goto(LirePlus[i], {
-      waitUntil: "domcontentloaded",
-    })
-    Critiques = Critiques.concat(await extraireCritiques(page))
-  }
-
-  let myJsonString = JSON.stringify(unifierCritiquesEtFilms(tousLesFilms,Critiques));
-
-  let data = JSON.parse(myJsonString);
+  
 
   let regex = new RegExp('envie-de-voir');
   if (regex.test(UrlProfil)) {
@@ -156,6 +137,38 @@ function unifierCritiquesEtFilms(arr1,arr2) {
     }
   }
   return arr1;
+}
+
+async function getCritiques(page,UrlProfil,dernierePage, tousLesFilms) {
+    let UrlCritique = UrlProfil.replace('films/','critiques/films/');
+    let Critiques = []; 
+    let LirePlus = [];
+
+    await page.goto(UrlCritique, {
+      waitUntil: "domcontentloaded",
+    });
+  
+    // for loop -> if ("Lire Plus") { click page puis, selection du titre film + text push dans myJsonString}
+    for (let index = 1; index <= dernierePage; index++) {
+      
+      await page.goto(UrlCritique+"?page="+index, {
+      waitUntil: "domcontentloaded",
+    })
+      console.log(UrlCritique+"?page="+index)
+      Critiques = Critiques.concat(await extraireCritiques(page))
+      LirePlus = LirePlus.concat(await extraireLienLirePlus(page))
+    }
+  
+    for (let i = 0; i < LirePlus.length; i++) {
+      await page.goto(LirePlus[i], {
+        waitUntil: "domcontentloaded",
+      })
+      Critiques = Critiques.concat(await extraireCritiques(page))
+    }
+
+    let myJsonString = JSON.stringify(unifierCritiquesEtFilms(tousLesFilms,Critiques));
+
+    return myJsonString;
 }
   
 getAllPages();
