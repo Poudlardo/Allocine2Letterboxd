@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 import { Browser, } from '../api/Browser.js';
+import { UnsupportedOperation } from '../common/Errors.js';
 import { debugError } from '../common/util.js';
 import { BidiBrowserContext } from './BrowserContext.js';
 import { BrowsingContext, BrowsingContextEvent } from './BrowsingContext.js';
@@ -22,6 +23,7 @@ import { BiDiBrowserTarget, BiDiBrowsingContextTarget, BiDiPageTarget, } from '.
  * @internal
  */
 export class BidiBrowser extends Browser {
+    protocol = 'webDriverBiDi';
     // TODO: Update generator to include fully module
     static subscribeModules = [
         'browsingContext',
@@ -112,6 +114,9 @@ export class BidiBrowser extends Browser {
             this.#connection.on(eventName, handler);
         }
     }
+    userAgent() {
+        throw new UnsupportedOperation();
+    }
     #onContextDomLoaded(event) {
         const target = this.#targets.get(event.context);
         if (target) {
@@ -178,9 +183,10 @@ export class BidiBrowser extends Browser {
         if (this.#connection.closed) {
             return;
         }
-        await this.#connection.send('browser.close', {});
-        this.#connection.dispose();
+        // `browser.close` can close connection before the response is received.
+        await this.#connection.send('browser.close', {}).catch(debugError);
         await this.#closeCallback?.call(null);
+        this.#connection.dispose();
     }
     get connected() {
         return !this.#connection.closed;
@@ -233,6 +239,16 @@ export class BidiBrowser extends Browser {
     }
     target() {
         return this.#browserTarget;
+    }
+    async disconnect() {
+        try {
+            // Fail silently if the session cannot be ended.
+            await this.#connection.send('session.end', {});
+        }
+        catch (e) {
+            debugError(e);
+        }
+        this.#connection.dispose();
     }
 }
 //# sourceMappingURL=Browser.js.map
