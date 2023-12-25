@@ -48,7 +48,7 @@ var __esDecorate = (this && this.__esDecorate) || function (ctor, descriptorIn, 
     done = true;
 };
 import { Frame, FrameEvent, throwIfDetached } from '../api/Frame.js';
-import { setPageContent } from '../common/util.js';
+import { UnsupportedOperation } from '../common/Errors.js';
 import { Deferred } from '../util/Deferred.js';
 import { disposeSymbol } from '../util/disposable.js';
 import { isErrorLike } from '../util/ErrorLike.js';
@@ -209,7 +209,9 @@ let CdpFrame = (() => {
         }
         async setContent(html, options = {}) {
             const { waitUntil = ['load'], timeout = this._frameManager.timeoutSettings.navigationTimeout(), } = options;
-            await setPageContent(this.isolatedRealm(), html);
+            // We rely upon the fact that document.open() will reset frame lifecycle with "init"
+            // lifecycle event. @see https://crrev.com/608658
+            await this.setFrameContent(html);
             const watcher = new LifecycleWatcher(this._frameManager.networkManager, this, waitUntil, timeout);
             const error = await Deferred.race([
                 watcher.terminationPromise(),
@@ -272,6 +274,9 @@ let CdpFrame = (() => {
             this.#detached = true;
             this.worlds[MAIN_WORLD][disposeSymbol]();
             this.worlds[PUPPETEER_WORLD][disposeSymbol]();
+        }
+        exposeFunction() {
+            throw new UnsupportedOperation();
         }
     };
 })();
