@@ -1,9 +1,11 @@
 # Allocine2Letterboxd
 
-Script qui permet d'importer sur Letterboxd sa liste de films vus et notés sur Allociné, ainsi que sa liste des films à voir (watchlist).
+Script qui permet d'importer sur Letterboxd sa liste de films vus, notés et critiqués sur Allociné, ainsi que sa liste des films à voir (watchlist). Tous les films, leur notes, et leurs éventuelles critiques écrites seront sauvegardés dans un fichier .csv à importer sur Letterboxd
+
 <p align="center">
 <img src="https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/main/csv%20converter.png" width="350" />
 </p>
+
 
 ## Prérequis
 
