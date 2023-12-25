@@ -52,7 +52,7 @@ const getAllPages = async () => {
     
     fs.writeFileSync("films-a-voir.csv", csvContent, 'utf-8')
   } else {
-    // pour générer une liste de films vus
+
     let csvContent = "Title,Rating,Review\n";
 
     data.forEach( film => {
@@ -114,7 +114,7 @@ async function extraireLienLirePlus(page) {
 
   return page.evaluate(() => { 
       let ArrayLirePlus = [];
-    // Wait and click on first result
+
     const critiquesFilms = document.querySelectorAll(".review-card");
   
     Array.from(critiquesFilms).map(async (critique) => {
@@ -126,13 +126,15 @@ async function extraireLienLirePlus(page) {
       return ArrayLirePlus;
     })
   
-  }
+}
 
 function unifierCritiquesEtFilms(arr1,arr2) {
   for (let i = 0; i < arr2.length; i++) {
     for (let j = 0; j < arr1.length; j++) {
       if (arr1[j].Title == arr2[i].Titre) {
         arr1[j].Review = arr2[i].Review;
+      } else if (arr1[j].Review == undefined) {
+        arr1[j].Review = "";
       }
     }
   }
@@ -148,7 +150,7 @@ async function getCritiques(page,UrlProfil,dernierePage, tousLesFilms) {
       waitUntil: "domcontentloaded",
     });
   
-    // for loop -> if ("Lire Plus") { click page puis, selection du titre film + text push dans myJsonString}
+
     for (let index = 1; index <= dernierePage; index++) {
       
       await page.goto(UrlCritique+"?page="+index, {
@@ -166,8 +168,7 @@ async function getCritiques(page,UrlProfil,dernierePage, tousLesFilms) {
       Critiques = Critiques.concat(await extraireCritiques(page))
     }
 
-    let myJsonString = JSON.stringify(unifierCritiquesEtFilms(tousLesFilms,Critiques));
-
+    let myJsonString = JSON.stringify(unifierCritiquesEtFilms(tousLesFilms, Critiques));
     return myJsonString;
 }
   
