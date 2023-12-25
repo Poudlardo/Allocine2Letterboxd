@@ -24,6 +24,7 @@ import { DevToolsTarget, InitializationStatus, OtherTarget, PageTarget, WorkerTa
  * @internal
  */
 export class CdpBrowser extends BrowserBase {
+    protocol = 'cdp';
     static async _create(product, connection, contextIds, ignoreHTTPSErrors, defaultViewport, process, closeCallback, targetFilterCallback, isPageTargetCallback, waitForInitiallyDiscoveredTargets = true) {
         const browser = new CdpBrowser(product, connection, contextIds, ignoreHTTPSErrors, defaultViewport, process, closeCallback, targetFilterCallback, isPageTargetCallback, waitForInitiallyDiscoveredTargets);
         await browser._attach();
@@ -227,12 +228,13 @@ export class CdpBrowser extends BrowserBase {
     }
     async close() {
         await this.#closeCallback.call(null);
-        this.disconnect();
+        await this.disconnect();
     }
     disconnect() {
         this.#targetManager.dispose();
         this.#connection.dispose();
         this._detach();
+        return Promise.resolve();
     }
     get connected() {
         return !this.#connection._closed;
