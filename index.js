@@ -51,14 +51,24 @@ const getAllPages = async () => {
     })
     
     fs.writeFileSync("films-a-voir.csv", csvContent, 'utf-8')
-  } else {
 
+  } else if (data[0].hasOwnProperty('Review')) {
     let csvContent = "Title,Rating,Review\n";
 
     data.forEach( film => {
       csvContent += `"${film.Title}"` + ",";
       csvContent += `"${film.Rating}"` + ",";
       csvContent += `"${film.Review}"` + "\n";
+    })
+    console.log("csvContent :",csvContent)
+    fs.writeFileSync("films-vus.csv", csvContent, 'utf-8')
+
+  } else {
+    let csvContent = "Title,Rating\n";
+
+    data.forEach( film => {
+      csvContent += `"${film.Title}"` + ",";
+      csvContent += `"${film.Rating}"` + "\n";
     })
     console.log("csvContent :",csvContent)
     fs.writeFileSync("films-vus.csv", csvContent, 'utf-8')
