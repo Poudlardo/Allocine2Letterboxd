@@ -25,7 +25,8 @@ const getAllPages = async () => {
     await page.goto(UrlProfil+"?page="+index, {
     waitUntil: "domcontentloaded",
   })
-      tousLesFilms = tousLesFilms.concat(await extraireTitresEtNotes(page));
+      tousLesFilms.unshift(...await extraireTitresEtNotes(page));
+      console.log(tousLesFilms)
   }
 
   const elementExists = await page.evaluate(() => {
@@ -88,9 +89,9 @@ async function extraireTitresEtNotes(page) {
       if(film.querySelector(".rating-mdl")) {
         const rawNote = film.querySelector(".rating-mdl").className.slice(12,14)
         const Rating = rawNote.substring(0,1)+"."+rawNote.substring(1,2)
-        data.push({ Title, Rating });
+        data.unshift({ Title, Rating });
       } else {
-        data.push({ Title });
+        data.unshift({ Title });
       }
 
     });
