@@ -7,7 +7,7 @@ Script qui permet d'importer sur Letterboxd sa liste de films vus, notés et cri
 </p>
 
 
-## Prérequis [!! Il faut avoir installé les programme ci-dessous, avant de lancer le script]
+## Prérequis [Il faut installer les programmes ci-dessous avant de lancer le script]
 
 - [Git](https://git-scm.com/) 
 - [Node.js](https://nodejs.org/en/download/)
