@@ -10,8 +10,9 @@ const getAllPages = async () => {
 
   const page = await browser.newPage();
 
-  // COPIE LE LIEN VERS TON PROFIL ICI, ENTRE LES DEUX GUILLEMETS " "
-  const UrlProfil = "https://www.allocine.fr/membre-Z20230721220027445492131/films/"
+  // COPIE LE LIEN DE TON PROFIL ICI, ENTRE LES DEUX GUILLEMETS " "
+    // L'url est censé se terminer par "films/" pour fonctionner
+  const UrlProfil = "https://www.allocine.fr/membre-Z20211228202924534667106/films/"
 
   await page.goto(UrlProfil, {
     waitUntil: "domcontentloaded",
@@ -30,14 +31,16 @@ const getAllPages = async () => {
   }
 
   const elementExists = await page.evaluate(() => {
-    return document.querySelector('.item.js-item-mq-medium.inactive') !== null;
+    return document.querySelector('.roller-item:last-child').title == 'Critiques'
   });
   
   let data = [];
-  if (elementExists) {
+  if (!elementExists) {
+    console.log('yes')
     let myJsonString = JSON.stringify(tousLesFilms);
     data = JSON.parse(myJsonString);
   } else {
+    console.log('no!')
     data = JSON.parse(await getCritiques(page,UrlProfil,dernierePage, tousLesFilms));
   }
   
@@ -154,6 +157,7 @@ function unifierCritiquesEtFilms(arr1,arr2) {
 
 async function getCritiques(page,UrlProfil,dernierePage, tousLesFilms) {
     let UrlCritique = UrlProfil.replace('films/','critiques/films/');
+    console.log(UrlProfil, '+', UrlCritique)
     let Critiques = []; 
     let LirePlus = [];
 
