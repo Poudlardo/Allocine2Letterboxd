@@ -1,17 +1,7 @@
 /**
- * Copyright 2019 Google Inc. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * @license
+ * Copyright 2019 Google Inc.
+ * SPDX-License-Identifier: Apache-2.0
  */
 var __addDisposableResource = (this && this.__addDisposableResource) || function (env, value, async) {
     if (value !== null && value !== void 0) {
@@ -59,11 +49,12 @@ var __disposeResources = (this && this.__disposeResources) || (function (Suppres
     return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
 });
 import { Realm } from '../api/Realm.js';
-import { addPageBinding, debugError, withSourcePuppeteerURLIfNone, } from '../common/util.js';
+import { debugError, withSourcePuppeteerURLIfNone } from '../common/util.js';
 import { Deferred } from '../util/Deferred.js';
 import { disposeSymbol } from '../util/disposable.js';
 import { Mutex } from '../util/Mutex.js';
 import { ExecutionContext, createCdpHandle } from './ExecutionContext.js';
+import { addPageBinding } from './utils.js';
 /**
  * @internal
  */
@@ -92,6 +83,8 @@ export class IsolatedWorld extends Realm {
         return this.#frameOrWorker.client;
     }
     clearContext() {
+        // The message has to match the CDP message expected by the WaitTask class.
+        this.#context?.reject(new Error('Execution context was destroyed'));
         this.#context = Deferred.create();
         if ('clearDocumentHandle' in this.#frameOrWorker) {
             this.#frameOrWorker.clearDocumentHandle();
