@@ -1,17 +1,7 @@
 /**
- * Copyright 2017 Google Inc. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * @license
+ * Copyright 2017 Google Inc.
+ * SPDX-License-Identifier: Apache-2.0
  */
 import { CallbackRegistry } from '../common/CallbackRegistry.js';
 import { debug } from '../common/Debug.js';
@@ -32,6 +22,7 @@ export class BidiConnection extends EventEmitter {
     #closed = false;
     #callbacks = new CallbackRegistry();
     #browsingContexts = new Map();
+    #emitters = [];
     constructor(url, transport, delay = 0, timeout) {
         super();
         this.#url = url;
@@ -46,6 +37,15 @@ export class BidiConnection extends EventEmitter {
     }
     get url() {
         return this.#url;
+    }
+    pipeTo(emitter) {
+        this.#emitters.push(emitter);
+    }
+    emit(type, event) {
+        for (const emitter of this.#emitters) {
+            emitter.emit(type, event);
+        }
+        return super.emit(type, event);
     }
     send(method, params) {
         assert(!this.#closed, 'Protocol error: Connection closed.');
@@ -163,6 +163,9 @@ export class BidiConnection extends EventEmitter {
     dispose() {
         this.unbind();
         this.#transport.close();
+    }
+    getPendingProtocolErrors() {
+        return this.#callbacks.getPendingProtocolErrors();
     }
 }
 /**

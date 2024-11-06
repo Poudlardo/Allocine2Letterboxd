@@ -1,18 +1,8 @@
 "use strict";
 /**
- * Copyright 2023 Google Inc. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * @license
+ * Copyright 2023 Google Inc.
+ * SPDX-License-Identifier: Apache-2.0
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -147,28 +137,42 @@ let BidiFrame = (() => {
         async goto(url, options = {}) {
             const { waitUntil = 'load', timeout: ms = this.#timeoutSettings.navigationTimeout(), } = options;
             const [readiness, networkIdle] = (0, lifecycle_js_1.getBiDiReadinessState)(waitUntil);
-            const response = await (0, rxjs_js_1.firstValueFrom)(this.#page
-                ._waitWithNetworkIdle(this.#context.connection.send('browsingContext.navigate', {
+            const result$ = (0, rxjs_js_1.zip)((0, rxjs_js_1.from)(this.#context.connection.send('browsingContext.navigate', {
                 context: this.#context.id,
                 url,
                 wait: readiness,
-            }), networkIdle)
-                .pipe((0, rxjs_js_1.raceWith)((0, util_js_1.timeout)(ms), (0, rxjs_js_1.from)(this.#abortDeferred.valueOrThrow())))
-                .pipe((0, lifecycle_js_1.rewriteNavigationError)(url, ms)));
-            return this.#page.getNavigationResponse(response?.result.navigation);
+            })), ...(networkIdle !== null
+                ? [
+                    this.#page.waitForNetworkIdle$({
+                        timeout: ms,
+                        concurrency: networkIdle === 'networkidle2' ? 2 : 0,
+                        idleTime: util_js_1.NETWORK_IDLE_TIME,
+                    }),
+                ]
+                : [])).pipe((0, rxjs_js_1.map)(([{ result }]) => {
+                return result;
+            }), (0, rxjs_js_1.raceWith)((0, util_js_1.timeout)(ms), (0, rxjs_js_1.from)(this.#abortDeferred.valueOrThrow())), (0, lifecycle_js_1.rewriteNavigationError)(url, ms));
+            const result = await (0, rxjs_js_1.firstValueFrom)(result$);
+            return this.#page.getNavigationResponse(result.navigation);
         }
         async setContent(html, options = {}) {
             const { waitUntil = 'load', timeout: ms = this.#timeoutSettings.navigationTimeout(), } = options;
             const [waitEvent, networkIdle] = (0, lifecycle_js_1.getBiDiLifecycleEvent)(waitUntil);
-            await (0, rxjs_js_1.firstValueFrom)(this.#page
-                ._waitWithNetworkIdle((0, rxjs_js_1.forkJoin)([
-                (0, rxjs_js_1.fromEvent)(this.#context, waitEvent).pipe((0, rxjs_js_1.first)()),
+            const result$ = (0, rxjs_js_1.zip)((0, rxjs_js_1.forkJoin)([
+                (0, util_js_1.fromEmitterEvent)(this.#context, waitEvent).pipe((0, rxjs_js_1.first)()),
                 (0, rxjs_js_1.from)(this.setFrameContent(html)),
             ]).pipe((0, rxjs_js_1.map)(() => {
                 return null;
-            })), networkIdle)
-                .pipe((0, rxjs_js_1.raceWith)((0, util_js_1.timeout)(ms), (0, rxjs_js_1.from)(this.#abortDeferred.valueOrThrow())))
-                .pipe((0, lifecycle_js_1.rewriteNavigationError)('setContent', ms)));
+            })), ...(networkIdle !== null
+                ? [
+                    this.#page.waitForNetworkIdle$({
+                        timeout: ms,
+                        concurrency: networkIdle === 'networkidle2' ? 2 : 0,
+                        idleTime: util_js_1.NETWORK_IDLE_TIME,
+                    }),
+                ]
+                : [])).pipe((0, rxjs_js_1.raceWith)((0, util_js_1.timeout)(ms), (0, rxjs_js_1.from)(this.#abortDeferred.valueOrThrow())), (0, lifecycle_js_1.rewriteNavigationError)('setContent', ms));
+            await (0, rxjs_js_1.firstValueFrom)(result$);
         }
         context() {
             return this.#context;
@@ -176,19 +180,28 @@ let BidiFrame = (() => {
         async waitForNavigation(options = {}) {
             const { waitUntil = 'load', timeout: ms = this.#timeoutSettings.navigationTimeout(), } = options;
             const [waitUntilEvent, networkIdle] = (0, lifecycle_js_1.getBiDiLifecycleEvent)(waitUntil);
-            const navigatedObservable = (0, rxjs_js_1.merge)((0, rxjs_js_1.forkJoin)([
-                (0, rxjs_js_1.fromEvent)(this.#context, Bidi.ChromiumBidi.BrowsingContext.EventNames.NavigationStarted).pipe((0, rxjs_js_1.first)()),
-                (0, rxjs_js_1.fromEvent)(this.#context, waitUntilEvent).pipe((0, rxjs_js_1.first)()),
-            ]), (0, rxjs_js_1.fromEvent)(this.#context, Bidi.ChromiumBidi.BrowsingContext.EventNames.FragmentNavigated)).pipe((0, rxjs_js_1.map)(result => {
+            const navigation$ = (0, rxjs_js_1.merge)((0, rxjs_js_1.forkJoin)([
+                (0, util_js_1.fromEmitterEvent)(this.#context, Bidi.ChromiumBidi.BrowsingContext.EventNames.NavigationStarted).pipe((0, rxjs_js_1.first)()),
+                (0, util_js_1.fromEmitterEvent)(this.#context, waitUntilEvent).pipe((0, rxjs_js_1.first)()),
+            ]), (0, util_js_1.fromEmitterEvent)(this.#context, Bidi.ChromiumBidi.BrowsingContext.EventNames.FragmentNavigated)).pipe((0, rxjs_js_1.map)(result => {
                 if (Array.isArray(result)) {
                     return { result: result[1] };
                 }
                 return { result };
             }));
-            const response = await (0, rxjs_js_1.firstValueFrom)(this.#page
-                ._waitWithNetworkIdle(navigatedObservable, networkIdle)
-                .pipe((0, rxjs_js_1.raceWith)((0, util_js_1.timeout)(ms), (0, rxjs_js_1.from)(this.#abortDeferred.valueOrThrow()))));
-            return this.#page.getNavigationResponse(response?.result.navigation);
+            const result$ = (0, rxjs_js_1.zip)(navigation$, ...(networkIdle !== null
+                ? [
+                    this.#page.waitForNetworkIdle$({
+                        timeout: ms,
+                        concurrency: networkIdle === 'networkidle2' ? 2 : 0,
+                        idleTime: util_js_1.NETWORK_IDLE_TIME,
+                    }),
+                ]
+                : [])).pipe((0, rxjs_js_1.map)(([{ result }]) => {
+                return result;
+            }), (0, rxjs_js_1.raceWith)((0, util_js_1.timeout)(ms), (0, rxjs_js_1.from)(this.#abortDeferred.valueOrThrow())));
+            const result = await (0, rxjs_js_1.firstValueFrom)(result$);
+            return this.#page.getNavigationResponse(result.navigation);
         }
         waitForDevicePrompt() {
             throw new Errors_js_1.UnsupportedOperation();

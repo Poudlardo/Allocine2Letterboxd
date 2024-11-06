@@ -1,18 +1,8 @@
 "use strict";
 /**
- * Copyright 2022 Google Inc. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * @license
+ * Copyright 2022 Google Inc.
+ * SPDX-License-Identifier: Apache-2.0
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ChromeTargetManager = void 0;
@@ -266,12 +256,7 @@ class ChromeTargetManager extends EventEmitter_js_1.EventEmitter {
             this.#attachedTargetsByTargetId.set(targetInfo.targetId, target);
             this.#attachedTargetsBySessionId.set(session.id(), target);
         }
-        if (parentSession instanceof CDPSession_js_1.CDPSession) {
-            parentSession.emit(CDPSession_js_1.CDPSessionEvent.Ready, session);
-        }
-        else {
-            parentSession.emit(CDPSession_js_1.CDPSessionEvent.Ready, session);
-        }
+        parentSession.emit(CDPSession_js_1.CDPSessionEvent.Ready, session);
         this.#targetsIdsForInit.delete(target._targetId);
         if (!isExistingTarget) {
             this.emit("targetAvailable" /* TargetManagerEvent.TargetAvailable */, target);
