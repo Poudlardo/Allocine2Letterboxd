@@ -1,22 +1,11 @@
 /**
- * Copyright 2017 Google Inc. All rights reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * @license
+ * Copyright 2017 Google Inc.
+ * SPDX-License-Identifier: Apache-2.0
  */
-import { firstValueFrom, from, merge, raceWith, filterAsync, fromEvent, } from '../../third_party/rxjs/rxjs.js';
+import { filterAsync, firstValueFrom, from, merge, raceWith, } from '../../third_party/rxjs/rxjs.js';
 import { EventEmitter } from '../common/EventEmitter.js';
-import { debugError } from '../common/util.js';
-import { timeout } from '../common/util.js';
+import { debugError, fromEmitterEvent, timeout } from '../common/util.js';
 import { asyncDisposeSymbol, disposeSymbol } from '../util/disposable.js';
 /**
  * @internal
@@ -107,7 +96,7 @@ export class Browser extends EventEmitter {
      */
     async waitForTarget(predicate, options = {}) {
         const { timeout: ms = 30000 } = options;
-        return await firstValueFrom(merge(fromEvent(this, "targetcreated" /* BrowserEvent.TargetCreated */), fromEvent(this, "targetchanged" /* BrowserEvent.TargetChanged */), from(this.targets())).pipe(filterAsync(predicate), raceWith(timeout(ms))));
+        return await firstValueFrom(merge(fromEmitterEvent(this, "targetcreated" /* BrowserEvent.TargetCreated */), fromEmitterEvent(this, "targetchanged" /* BrowserEvent.TargetChanged */), from(this.targets())).pipe(filterAsync(predicate), raceWith(timeout(ms))));
     }
     /**
      * Gets a list of all open {@link Page | pages} inside this {@link Browser}.
@@ -131,7 +120,7 @@ export class Browser extends EventEmitter {
     /**
      * Whether Puppeteer is connected to this {@link Browser | browser}.
      *
-     * @deprecated Use {@link Browser.connected}.
+     * @deprecated Use {@link Browser | Browser.connected}.
      */
     isConnected() {
         return this.connected;
