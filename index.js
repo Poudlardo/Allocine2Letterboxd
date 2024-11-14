@@ -1,6 +1,5 @@
 import puppeteer from "puppeteer";
 import fs from "fs";
-import argv from "process";
 import readline from "readline";
 
 // Create an interface for reading from the terminal
@@ -12,7 +11,7 @@ const rl = readline.createInterface({
 // Function to ask the question
 function askQuestion() {
   return new Promise((resolve) => {
-    rl.question('Copie-colle ici le lien de ton profil Allociné : ', (answer) => {
+    rl.question('Copie-colle ici le lien de ton profil Allociné (ex : "https://www.allocine.fr/membre-Z20211228202924534667106/films/") : ', (answer) => {
       resolve(answer);
       rl.close();
       getAllPages(answer);
@@ -28,10 +27,7 @@ const getAllPages = async (answer) => {
   });
 
   const page = await browser.newPage();
-
-  // COPIE LE LIEN DE TON PROFIL ICI, ENTRE LES DEUX GUILLEMETS " "
-    // L'url est censé se terminer par "films/" pour fonctionner
-  const UrlProfil = answer //"https://www.allocine.fr/membre-Z20211228202924534667106/films/"
+  const UrlProfil = answer // "https://www.allocine.fr/membre-Z20211228202924534667106/films/"
 
   await page.goto(UrlProfil, {
     waitUntil: "domcontentloaded",
@@ -96,7 +92,8 @@ const getAllPages = async (answer) => {
     console.log("csvContent :",csvContent)
     fs.writeFileSync("films-vus.csv", csvContent, 'utf-8')
   }
-
+  await browser.close();
+  
   };
 
 async function extraireTitresEtNotes(page) {
@@ -176,7 +173,7 @@ function unifierCritiquesEtFilms(arr1,arr2) {
 
 async function getCritiques(page,UrlProfil,dernierePage, tousLesFilms) {
     let UrlCritique = UrlProfil.replace('films/','critiques/films/');
-    console.log(UrlProfil, '+', UrlCritique)
+    // console.log(UrlProfil, '+', UrlCritique)
     let Critiques = []; 
     let LirePlus = [];
 
@@ -190,7 +187,7 @@ async function getCritiques(page,UrlProfil,dernierePage, tousLesFilms) {
       await page.goto(UrlCritique+"?page="+index, {
       waitUntil: "domcontentloaded",
     })
-      console.log(UrlCritique+"?page="+index)
+      // console.log(UrlCritique+"?page="+index)
       Critiques = Critiques.concat(await extraireCritiques(page))
       LirePlus = LirePlus.concat(await extraireLienLirePlus(page))
     }
