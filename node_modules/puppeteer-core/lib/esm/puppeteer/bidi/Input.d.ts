@@ -4,9 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import * as Bidi from 'chromium-bidi/lib/cjs/protocol/protocol.js';
-import { Keyboard, Mouse, Touchscreen, type KeyDownOptions, type KeyPressOptions, type KeyboardTypeOptions, type MouseClickOptions, type MouseMoveOptions, type MouseOptions, type MouseWheelOptions } from '../api/Input.js';
+import { Keyboard, Mouse, Touchscreen, type TouchHandle, type KeyboardTypeOptions, type KeyDownOptions, type KeyPressOptions, type MouseClickOptions, type MouseMoveOptions, type MouseOptions, type MouseWheelOptions } from '../api/Input.js';
 import type { KeyInput } from '../common/USKeyboardLayout.js';
-import type { BrowsingContext } from './BrowsingContext.js';
 import type { BidiPage } from './Page.js';
 /**
  * @internal
@@ -43,7 +42,7 @@ export interface BidiTouchMoveOptions {
  */
 export declare class BidiMouse extends Mouse {
     #private;
-    constructor(context: BrowsingContext);
+    constructor(page: BidiPage);
     reset(): Promise<void>;
     move(x: number, y: number, options?: Readonly<BidiMouseMoveOptions>): Promise<void>;
     down(options?: Readonly<MouseOptions>): Promise<void>;
@@ -59,11 +58,21 @@ export declare class BidiMouse extends Mouse {
 /**
  * @internal
  */
+declare class BidiTouchHandle implements TouchHandle {
+    #private;
+    constructor(page: BidiPage, touchScreen: BidiTouchscreen, id: number, x: number, y: number, properties: Bidi.Input.PointerCommonProperties);
+    start(options?: BidiTouchMoveOptions): Promise<void>;
+    move(x: number, y: number): Promise<void>;
+    end(): Promise<void>;
+}
+/**
+ * @internal
+ */
 export declare class BidiTouchscreen extends Touchscreen {
     #private;
-    constructor(context: BrowsingContext);
-    touchStart(x: number, y: number, options?: BidiTouchMoveOptions): Promise<void>;
-    touchMove(x: number, y: number, options?: BidiTouchMoveOptions): Promise<void>;
-    touchEnd(): Promise<void>;
+    touches: BidiTouchHandle[];
+    constructor(page: BidiPage);
+    touchStart(x: number, y: number, options?: BidiTouchMoveOptions): Promise<TouchHandle>;
 }
+export {};
 //# sourceMappingURL=Input.d.ts.map

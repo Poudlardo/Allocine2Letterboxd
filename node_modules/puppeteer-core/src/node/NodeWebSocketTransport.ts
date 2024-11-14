@@ -14,12 +14,14 @@ import {packageVersion} from '../generated/version.js';
 export class NodeWebSocketTransport implements ConnectionTransport {
   static create(
     url: string,
-    headers?: Record<string, string>
+    headers?: Record<string, string>,
   ): Promise<NodeWebSocketTransport> {
     return new Promise((resolve, reject) => {
       const ws = new NodeWebSocket(url, [], {
         followRedirects: true,
         perMessageDeflate: false,
+        // @ts-expect-error https://github.com/websockets/ws/blob/master/doc/ws.md#new-websocketaddress-protocols-options
+        allowSynchronousEvents: false,
         maxPayload: 256 * 1024 * 1024, // 256Mb
         headers: {
           'User-Agent': `Puppeteer ${packageVersion}`,
