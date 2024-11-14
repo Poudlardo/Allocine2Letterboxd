@@ -1,6 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pierceAll = exports.pierce = exports.checkVisibility = void 0;
+exports.checkVisibility = void 0;
+exports.pierce = pierce;
+exports.pierceAll = pierceAll;
+/**
+ * @license
+ * Copyright 2024 Google Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 const HIDDEN_VISIBILITY_VALUES = ['hidden', 'collapse'];
 /**
  * @internal
@@ -38,7 +45,6 @@ function* pierce(root) {
         yield root;
     }
 }
-exports.pierce = pierce;
 /**
  * @internal
  */
@@ -57,5 +63,4 @@ function* pierceAll(root) {
         }
     }
 }
-exports.pierceAll = pierceAll;
 //# sourceMappingURL=util.js.map
