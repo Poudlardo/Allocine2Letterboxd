@@ -8,6 +8,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.BidiTouchscreen = exports.BidiMouse = exports.BidiKeyboard = void 0;
 const Input_js_1 = require("../api/Input.js");
 const Errors_js_1 = require("../common/Errors.js");
+const Errors_js_2 = require("../common/Errors.js");
 var SourceActionsType;
 (function (SourceActionsType) {
     SourceActionsType["None"] = "none";
@@ -257,38 +258,32 @@ class BidiKeyboard extends Input_js_1.Keyboard {
         this.#page = page;
     }
     async down(key, _options) {
-        await this.#page.connection.send('input.performActions', {
-            context: this.#page.mainFrame()._id,
-            actions: [
-                {
-                    type: SourceActionsType.Key,
-                    id: "__puppeteer_keyboard" /* InputId.Keyboard */,
-                    actions: [
-                        {
-                            type: ActionType.KeyDown,
-                            value: getBidiKeyValue(key),
-                        },
-                    ],
-                },
-            ],
-        });
+        await this.#page.mainFrame().browsingContext.performActions([
+            {
+                type: SourceActionsType.Key,
+                id: "__puppeteer_keyboard" /* InputId.Keyboard */,
+                actions: [
+                    {
+                        type: ActionType.KeyDown,
+                        value: getBidiKeyValue(key),
+                    },
+                ],
+            },
+        ]);
     }
     async up(key) {
-        await this.#page.connection.send('input.performActions', {
-            context: this.#page.mainFrame()._id,
-            actions: [
-                {
-                    type: SourceActionsType.Key,
-                    id: "__puppeteer_keyboard" /* InputId.Keyboard */,
-                    actions: [
-                        {
-                            type: ActionType.KeyUp,
-                            value: getBidiKeyValue(key),
-                        },
-                    ],
-                },
-            ],
-        });
+        await this.#page.mainFrame().browsingContext.performActions([
+            {
+                type: SourceActionsType.Key,
+                id: "__puppeteer_keyboard" /* InputId.Keyboard */,
+                actions: [
+                    {
+                        type: ActionType.KeyUp,
+                        value: getBidiKeyValue(key),
+                    },
+                ],
+            },
+        ]);
     }
     async press(key, options = {}) {
         const { delay = 0 } = options;
@@ -308,16 +303,13 @@ class BidiKeyboard extends Input_js_1.Keyboard {
             type: ActionType.KeyUp,
             value: getBidiKeyValue(key),
         });
-        await this.#page.connection.send('input.performActions', {
-            context: this.#page.mainFrame()._id,
-            actions: [
-                {
-                    type: SourceActionsType.Key,
-                    id: "__puppeteer_keyboard" /* InputId.Keyboard */,
-                    actions,
-                },
-            ],
-        });
+        await this.#page.mainFrame().browsingContext.performActions([
+            {
+                type: SourceActionsType.Key,
+                id: "__puppeteer_keyboard" /* InputId.Keyboard */,
+                actions,
+            },
+        ]);
     }
     async type(text, options = {}) {
         const { delay = 0 } = options;
@@ -350,16 +342,13 @@ class BidiKeyboard extends Input_js_1.Keyboard {
                 });
             }
         }
-        await this.#page.connection.send('input.performActions', {
-            context: this.#page.mainFrame()._id,
-            actions: [
-                {
-                    type: SourceActionsType.Key,
-                    id: "__puppeteer_keyboard" /* InputId.Keyboard */,
-                    actions,
-                },
-            ],
-        });
+        await this.#page.mainFrame().browsingContext.performActions([
+            {
+                type: SourceActionsType.Key,
+                id: "__puppeteer_keyboard" /* InputId.Keyboard */,
+                actions,
+            },
+        ]);
     }
     async sendCharacter(char) {
         // Measures the number of code points rather than UTF-16 code units.
@@ -391,17 +380,15 @@ const getBidiButton = (button) => {
  * @internal
  */
 class BidiMouse extends Input_js_1.Mouse {
-    #context;
+    #page;
     #lastMovePoint = { x: 0, y: 0 };
-    constructor(context) {
+    constructor(page) {
         super();
-        this.#context = context;
+        this.#page = page;
     }
     async reset() {
         this.#lastMovePoint = { x: 0, y: 0 };
-        await this.#context.connection.send('input.releaseActions', {
-            context: this.#context.id,
-        });
+        await this.#page.mainFrame().browsingContext.releaseActions();
     }
     async move(x, y, options = {}) {
         const from = this.#lastMovePoint;
@@ -426,50 +413,41 @@ class BidiMouse extends Input_js_1.Mouse {
         });
         // https://w3c.github.io/webdriver-bidi/#command-input-performActions:~:text=input.PointerMoveAction%20%3D%20%7B%0A%20%20type%3A%20%22pointerMove%22%2C%0A%20%20x%3A%20js%2Dint%2C
         this.#lastMovePoint = to;
-        await this.#context.connection.send('input.performActions', {
-            context: this.#context.id,
-            actions: [
-                {
-                    type: SourceActionsType.Pointer,
-                    id: "__puppeteer_mouse" /* InputId.Mouse */,
-                    actions,
-                },
-            ],
-        });
+        await this.#page.mainFrame().browsingContext.performActions([
+            {
+                type: SourceActionsType.Pointer,
+                id: "__puppeteer_mouse" /* InputId.Mouse */,
+                actions,
+            },
+        ]);
     }
     async down(options = {}) {
-        await this.#context.connection.send('input.performActions', {
-            context: this.#context.id,
-            actions: [
-                {
-                    type: SourceActionsType.Pointer,
-                    id: "__puppeteer_mouse" /* InputId.Mouse */,
-                    actions: [
-                        {
-                            type: ActionType.PointerDown,
-                            button: getBidiButton(options.button ?? Input_js_1.MouseButton.Left),
-                        },
-                    ],
-                },
-            ],
-        });
+        await this.#page.mainFrame().browsingContext.performActions([
+            {
+                type: SourceActionsType.Pointer,
+                id: "__puppeteer_mouse" /* InputId.Mouse */,
+                actions: [
+                    {
+                        type: ActionType.PointerDown,
+                        button: getBidiButton(options.button ?? Input_js_1.MouseButton.Left),
+                    },
+                ],
+            },
+        ]);
     }
     async up(options = {}) {
-        await this.#context.connection.send('input.performActions', {
-            context: this.#context.id,
-            actions: [
-                {
-                    type: SourceActionsType.Pointer,
-                    id: "__puppeteer_mouse" /* InputId.Mouse */,
-                    actions: [
-                        {
-                            type: ActionType.PointerUp,
-                            button: getBidiButton(options.button ?? Input_js_1.MouseButton.Left),
-                        },
-                    ],
-                },
-            ],
-        });
+        await this.#page.mainFrame().browsingContext.performActions([
+            {
+                type: SourceActionsType.Pointer,
+                id: "__puppeteer_mouse" /* InputId.Mouse */,
+                actions: [
+                    {
+                        type: ActionType.PointerUp,
+                        button: getBidiButton(options.button ?? Input_js_1.MouseButton.Left),
+                    },
+                ],
+            },
+        ]);
     }
     async click(x, y, options = {}) {
         const actions = [
@@ -499,38 +477,32 @@ class BidiMouse extends Input_js_1.Mouse {
             });
         }
         actions.push(pointerUpAction);
-        await this.#context.connection.send('input.performActions', {
-            context: this.#context.id,
-            actions: [
-                {
-                    type: SourceActionsType.Pointer,
-                    id: "__puppeteer_mouse" /* InputId.Mouse */,
-                    actions,
-                },
-            ],
-        });
+        await this.#page.mainFrame().browsingContext.performActions([
+            {
+                type: SourceActionsType.Pointer,
+                id: "__puppeteer_mouse" /* InputId.Mouse */,
+                actions,
+            },
+        ]);
     }
     async wheel(options = {}) {
-        await this.#context.connection.send('input.performActions', {
-            context: this.#context.id,
-            actions: [
-                {
-                    type: SourceActionsType.Wheel,
-                    id: "__puppeteer_wheel" /* InputId.Wheel */,
-                    actions: [
-                        {
-                            type: ActionType.Scroll,
-                            ...(this.#lastMovePoint ?? {
-                                x: 0,
-                                y: 0,
-                            }),
-                            deltaX: options.deltaX ?? 0,
-                            deltaY: options.deltaY ?? 0,
-                        },
-                    ],
-                },
-            ],
-        });
+        await this.#page.mainFrame().browsingContext.performActions([
+            {
+                type: SourceActionsType.Wheel,
+                id: "__puppeteer_wheel" /* InputId.Wheel */,
+                actions: [
+                    {
+                        type: ActionType.Scroll,
+                        ...(this.#lastMovePoint ?? {
+                            x: 0,
+                            y: 0,
+                        }),
+                        deltaX: options.deltaX ?? 0,
+                        deltaY: options.deltaY ?? 0,
+                    },
+                ],
+            },
+        ]);
     }
     drag() {
         throw new Errors_js_1.UnsupportedOperation();
@@ -552,79 +524,111 @@ exports.BidiMouse = BidiMouse;
 /**
  * @internal
  */
+class BidiTouchHandle {
+    #started = false;
+    #x;
+    #y;
+    #bidiId;
+    #page;
+    #touchScreen;
+    #properties;
+    constructor(page, touchScreen, id, x, y, properties) {
+        this.#page = page;
+        this.#touchScreen = touchScreen;
+        this.#x = Math.round(x);
+        this.#y = Math.round(y);
+        this.#properties = properties;
+        this.#bidiId = `${"__puppeteer_finger" /* InputId.Finger */}_${id}`;
+    }
+    async start(options = {}) {
+        if (this.#started) {
+            throw new Errors_js_2.TouchError('Touch has already started');
+        }
+        await this.#page.mainFrame().browsingContext.performActions([
+            {
+                type: SourceActionsType.Pointer,
+                id: this.#bidiId,
+                parameters: {
+                    pointerType: "touch" /* Bidi.Input.PointerType.Touch */,
+                },
+                actions: [
+                    {
+                        type: ActionType.PointerMove,
+                        x: this.#x,
+                        y: this.#y,
+                        origin: options.origin,
+                    },
+                    {
+                        ...this.#properties,
+                        type: ActionType.PointerDown,
+                        button: 0,
+                    },
+                ],
+            },
+        ]);
+        this.#started = true;
+    }
+    move(x, y) {
+        const newX = Math.round(x);
+        const newY = Math.round(y);
+        return this.#page.mainFrame().browsingContext.performActions([
+            {
+                type: SourceActionsType.Pointer,
+                id: this.#bidiId,
+                parameters: {
+                    pointerType: "touch" /* Bidi.Input.PointerType.Touch */,
+                },
+                actions: [
+                    {
+                        ...this.#properties,
+                        type: ActionType.PointerMove,
+                        x: newX,
+                        y: newY,
+                    },
+                ],
+            },
+        ]);
+    }
+    async end() {
+        await this.#page.mainFrame().browsingContext.performActions([
+            {
+                type: SourceActionsType.Pointer,
+                id: this.#bidiId,
+                parameters: {
+                    pointerType: "touch" /* Bidi.Input.PointerType.Touch */,
+                },
+                actions: [
+                    {
+                        type: ActionType.PointerUp,
+                        button: 0,
+                    },
+                ],
+            },
+        ]);
+        this.#touchScreen.removeHandle(this);
+    }
+}
+/**
+ * @internal
+ */
 class BidiTouchscreen extends Input_js_1.Touchscreen {
-    #context;
-    constructor(context) {
+    #page;
+    constructor(page) {
         super();
-        this.#context = context;
+        this.#page = page;
     }
     async touchStart(x, y, options = {}) {
-        await this.#context.connection.send('input.performActions', {
-            context: this.#context.id,
-            actions: [
-                {
-                    type: SourceActionsType.Pointer,
-                    id: "__puppeteer_finger" /* InputId.Finger */,
-                    parameters: {
-                        pointerType: "touch" /* Bidi.Input.PointerType.Touch */,
-                    },
-                    actions: [
-                        {
-                            type: ActionType.PointerMove,
-                            x: Math.round(x),
-                            y: Math.round(y),
-                            origin: options.origin,
-                        },
-                        {
-                            type: ActionType.PointerDown,
-                            button: 0,
-                        },
-                    ],
-                },
-            ],
-        });
-    }
-    async touchMove(x, y, options = {}) {
-        await this.#context.connection.send('input.performActions', {
-            context: this.#context.id,
-            actions: [
-                {
-                    type: SourceActionsType.Pointer,
-                    id: "__puppeteer_finger" /* InputId.Finger */,
-                    parameters: {
-                        pointerType: "touch" /* Bidi.Input.PointerType.Touch */,
-                    },
-                    actions: [
-                        {
-                            type: ActionType.PointerMove,
-                            x: Math.round(x),
-                            y: Math.round(y),
-                            origin: options.origin,
-                        },
-                    ],
-                },
-            ],
-        });
-    }
-    async touchEnd() {
-        await this.#context.connection.send('input.performActions', {
-            context: this.#context.id,
-            actions: [
-                {
-                    type: SourceActionsType.Pointer,
-                    id: "__puppeteer_finger" /* InputId.Finger */,
-                    parameters: {
-                        pointerType: "touch" /* Bidi.Input.PointerType.Touch */,
-                    },
-                    actions: [
-                        {
-                            type: ActionType.PointerUp,
-                            button: 0,
-                        },
-                    ],
-                },
-            ],
-        });
+        const id = this.idGenerator();
+        const properties = {
+            width: 0.5 * 2, // 2 times default touch radius.
+            height: 0.5 * 2, // 2 times default touch radius.
+            pressure: 0.5,
+            altitudeAngle: Math.PI / 2,
+        };
+        const touch = new BidiTouchHandle(this.#page, this, id, x, y, properties);
+        await touch.start(options);
+        this.touches.push(touch);
+        return touch;
     }
 }
 exports.BidiTouchscreen = BidiTouchscreen;
