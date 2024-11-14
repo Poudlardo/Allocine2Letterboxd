@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import {UnsupportedOperation} from '../common/Errors.js';
 import {EventEmitter, type EventType} from '../common/EventEmitter.js';
 import {TimeoutSettings} from '../common/TimeoutSettings.js';
 import type {EvaluateFunc, HandleFor} from '../common/types.js';
@@ -24,10 +25,10 @@ import type {Realm} from './Realm.js';
  *
  * ```ts
  * page.on('workercreated', worker =>
- *   console.log('Worker created: ' + worker.url())
+ *   console.log('Worker created: ' + worker.url()),
  * );
  * page.on('workerdestroyed', worker =>
- *   console.log('Worker destroyed: ' + worker.url())
+ *   console.log('Worker destroyed: ' + worker.url()),
  * );
  *
  * console.log('Current workers:');
@@ -130,5 +131,9 @@ export abstract class WebWorker extends EventEmitter<
   ): Promise<HandleFor<Awaited<ReturnType<Func>>>> {
     func = withSourcePuppeteerURLIfNone(this.evaluateHandle.name, func);
     return await this.mainRealm().evaluateHandle(func, ...args);
+  }
+
+  async close(): Promise<void> {
+    throw new UnsupportedOperation('WebWorker.close() is not supported');
   }
 }

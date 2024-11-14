@@ -3,6 +3,7 @@
  * Copyright 2020 Google Inc.
  * SPDX-License-Identifier: Apache-2.0
  */
+import type { Frame } from '../api/Frame.js';
 import type { JSHandle } from '../api/JSHandle.js';
 /**
  * @public
@@ -25,7 +26,7 @@ export interface ConsoleMessageLocation {
  * The supported types for console messages.
  * @public
  */
-export type ConsoleMessageType = 'log' | 'debug' | 'info' | 'error' | 'warning' | 'dir' | 'dirxml' | 'table' | 'trace' | 'clear' | 'startGroup' | 'startGroupCollapsed' | 'endGroup' | 'assert' | 'profile' | 'profileEnd' | 'count' | 'timeEnd' | 'verbose';
+export type ConsoleMessageType = 'log' | 'debug' | 'info' | 'error' | 'warn' | 'dir' | 'dirxml' | 'table' | 'trace' | 'clear' | 'startGroup' | 'startGroupCollapsed' | 'endGroup' | 'assert' | 'profile' | 'profileEnd' | 'count' | 'timeEnd' | 'verbose';
 /**
  * ConsoleMessage objects are dispatched by page via the 'console' event.
  * @public
@@ -33,9 +34,9 @@ export type ConsoleMessageType = 'log' | 'debug' | 'info' | 'error' | 'warning' 
 export declare class ConsoleMessage {
     #private;
     /**
-     * @public
+     * @internal
      */
-    constructor(type: ConsoleMessageType, text: string, args: JSHandle[], stackTraceLocations: ConsoleMessageLocation[]);
+    constructor(type: ConsoleMessageType, text: string, args: JSHandle[], stackTraceLocations: ConsoleMessageLocation[], frame?: Frame);
     /**
      * The type of the console message.
      */
