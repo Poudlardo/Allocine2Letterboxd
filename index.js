@@ -1,33 +1,50 @@
 import puppeteer from "puppeteer";
 import fs from "fs";
+import readline from "readline";
 
-const getAllPages = async () => {
+// Create an interface for reading from the terminal
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+
+// Function to ask the question
+function askQuestion() {
+  return new Promise((resolve) => {
+    rl.question('Copie-colle ici le lien de ton profil Allociné (ex : "https://www.allocine.fr/membre-Z20211228202924534667106/films/") : ', (answer) => {
+      resolve(answer);
+      rl.close();
+      getAllPages(answer);
+    });
+  });
+}
+
+const getAllPages = async (answer) => {
  
   const browser = await puppeteer.launch({
-    headless: false,
-    defaultViewport: null,
+    browser : 'chrome',
+    headless: true,
   });
 
   const page = await browser.newPage();
-
-  // COPIE LE LIEN DE TON PROFIL ICI, ENTRE LES DEUX GUILLEMETS " "
-    // L'url est censé se terminer par "films/" pour fonctionner
-  const UrlProfil = "https://www.allocine.fr/membre-Z20211228202924534667106/films/"
+  const UrlProfil = answer // "https://www.allocine.fr/membre-Z20211228202924534667106/films/"
 
   await page.goto(UrlProfil, {
-    waitUntil: "domcontentloaded",
+    waitUntil: "domcontentloaded", 
+    timeout: 60000,
   });
 
   let tousLesFilms = []; 
 
-  const dernierePage = await page.evaluate(el => el.innerText.match(/\d+/), (await page.$$('.pagination-item-holder > a:last-child'))[0])
+  const dernierePage = await page.evaluate(el => el.textContent.match(/\d+/), (await page.$$('.pagination-item-holder > a:last-child'))[0])
 
   for (let index = 1; index <= dernierePage; index++) {
     await page.goto(UrlProfil+"?page="+index, {
     waitUntil: "domcontentloaded",
+    timeout: 60000,
   })
       tousLesFilms.unshift(...await extraireTitresEtNotes(page));
-      console.log(tousLesFilms)
+      console.log("Création du fichier....Ne pas fermer le terminal et le navigateur")
   }
 
   const elementExists = await page.evaluate(() => {
@@ -77,7 +94,8 @@ const getAllPages = async () => {
     console.log("csvContent :",csvContent)
     fs.writeFileSync("films-vus.csv", csvContent, 'utf-8')
   }
-
+  await browser.close();
+  
   };
 
 async function extraireTitresEtNotes(page) {
@@ -163,6 +181,7 @@ async function getCritiques(page,UrlProfil,dernierePage, tousLesFilms) {
 
     await page.goto(UrlCritique, {
       waitUntil: "domcontentloaded",
+      timeout: 60000,
     });
   
 
@@ -170,6 +189,7 @@ async function getCritiques(page,UrlProfil,dernierePage, tousLesFilms) {
       
       await page.goto(UrlCritique+"?page="+index, {
       waitUntil: "domcontentloaded",
+      timeout: 60000,
     })
       console.log(UrlCritique+"?page="+index)
       Critiques = Critiques.concat(await extraireCritiques(page))
@@ -179,6 +199,7 @@ async function getCritiques(page,UrlProfil,dernierePage, tousLesFilms) {
     for (let i = 0; i < LirePlus.length; i++) {
       await page.goto(LirePlus[i], {
         waitUntil: "domcontentloaded",
+        timeout: 60000,
       })
       Critiques = Critiques.concat(await extraireCritiques(page))
     }
@@ -187,4 +208,4 @@ async function getCritiques(page,UrlProfil,dernierePage, tousLesFilms) {
     return myJsonString;
 }
   
-getAllPages();
+askQuestion();

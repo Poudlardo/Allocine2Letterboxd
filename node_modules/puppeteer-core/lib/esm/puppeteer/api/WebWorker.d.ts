@@ -20,10 +20,10 @@ import type { Realm } from './Realm.js';
  *
  * ```ts
  * page.on('workercreated', worker =>
- *   console.log('Worker created: ' + worker.url())
+ *   console.log('Worker created: ' + worker.url()),
  * );
  * page.on('workerdestroyed', worker =>
- *   console.log('Worker destroyed: ' + worker.url())
+ *   console.log('Worker destroyed: ' + worker.url()),
  * );
  *
  * console.log('Current workers:');
@@ -97,5 +97,6 @@ export declare abstract class WebWorker extends EventEmitter<Record<EventType, u
      * @returns A {@link JSHandle | handle} to the return value of `func`.
      */
     evaluateHandle<Params extends unknown[], Func extends EvaluateFunc<Params> = EvaluateFunc<Params>>(func: Func | string, ...args: Params): Promise<HandleFor<Awaited<ReturnType<Func>>>>;
+    close(): Promise<void>;
 }
 //# sourceMappingURL=WebWorker.d.ts.map
