@@ -1,7 +1,26 @@
 import puppeteer from "puppeteer";
 import fs from "fs";
+import argv from "process";
+import readline from "readline";
 
-const getAllPages = async () => {
+// Create an interface for reading from the terminal
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+
+// Function to ask the question
+function askQuestion() {
+  return new Promise((resolve) => {
+    rl.question('Copie-colle ici le lien de ton profil Allociné : ', (answer) => {
+      resolve(answer);
+      rl.close();
+      getAllPages(answer);
+    });
+  });
+}
+
+const getAllPages = async (answer) => {
  
   const browser = await puppeteer.launch({
     headless: false,
@@ -12,7 +31,7 @@ const getAllPages = async () => {
 
   // COPIE LE LIEN DE TON PROFIL ICI, ENTRE LES DEUX GUILLEMETS " "
     // L'url est censé se terminer par "films/" pour fonctionner
-  const UrlProfil = "https://www.allocine.fr/membre-Z20211228202924534667106/films/"
+  const UrlProfil = answer //"https://www.allocine.fr/membre-Z20211228202924534667106/films/"
 
   await page.goto(UrlProfil, {
     waitUntil: "domcontentloaded",
@@ -187,4 +206,4 @@ async function getCritiques(page,UrlProfil,dernierePage, tousLesFilms) {
     return myJsonString;
 }
   
-getAllPages();
+askQuestion();
