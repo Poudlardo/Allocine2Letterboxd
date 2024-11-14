@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type * as Bidi from 'chromium-bidi/lib/cjs/protocol/protocol.js';
+import * as Bidi from 'chromium-bidi/lib/cjs/protocol/protocol.js';
 
 import {EventEmitter} from '../../common/EventEmitter.js';
 import {inertIfDisposed, throwIfDisposed} from '../../util/decorators.js';
@@ -42,42 +42,39 @@ export class UserPrompt extends EventEmitter<{
 }> {
   static from(
     browsingContext: BrowsingContext,
-    info: Bidi.BrowsingContext.UserPromptOpenedParameters
+    info: Bidi.BrowsingContext.UserPromptOpenedParameters,
   ): UserPrompt {
     const userPrompt = new UserPrompt(browsingContext, info);
     userPrompt.#initialize();
     return userPrompt;
   }
 
-  // keep-sorted start
   #reason?: string;
   #result?: UserPromptResult;
   readonly #disposables = new DisposableStack();
   readonly browsingContext: BrowsingContext;
   readonly info: Bidi.BrowsingContext.UserPromptOpenedParameters;
-  // keep-sorted end
 
   private constructor(
     context: BrowsingContext,
-    info: Bidi.BrowsingContext.UserPromptOpenedParameters
+    info: Bidi.BrowsingContext.UserPromptOpenedParameters,
   ) {
     super();
-    // keep-sorted start
+
     this.browsingContext = context;
     this.info = info;
-    // keep-sorted end
   }
 
   #initialize() {
     const browserContextEmitter = this.#disposables.use(
-      new EventEmitter(this.browsingContext)
+      new EventEmitter(this.browsingContext),
     );
     browserContextEmitter.once('closed', ({reason}) => {
       this.dispose(`User prompt already closed: ${reason}`);
     });
 
     const sessionEmitter = this.#disposables.use(
-      new EventEmitter(this.#session)
+      new EventEmitter(this.#session),
     );
     sessionEmitter.on('browsingContext.userPromptClosed', parameters => {
       if (parameters.context !== this.browsingContext.id) {
@@ -89,7 +86,6 @@ export class UserPrompt extends EventEmitter<{
     });
   }
 
-  // keep-sorted start block=yes
   get #session() {
     return this.browsingContext.userContext.browser.session;
   }
@@ -100,12 +96,17 @@ export class UserPrompt extends EventEmitter<{
     return this.closed;
   }
   get handled(): boolean {
+    if (
+      this.info.handler === Bidi.Session.UserPromptHandlerType.Accept ||
+      this.info.handler === Bidi.Session.UserPromptHandlerType.Dismiss
+    ) {
+      return true;
+    }
     return this.#result !== undefined;
   }
   get result(): UserPromptResult | undefined {
     return this.#result;
   }
-  // keep-sorted end
 
   @inertIfDisposed
   private dispose(reason?: string): void {
@@ -126,7 +127,7 @@ export class UserPrompt extends EventEmitter<{
     return this.#result!;
   }
 
-  [disposeSymbol](): void {
+  override [disposeSymbol](): void {
     this.#reason ??=
       'User prompt already closed, probably because the associated browsing context was destroyed.';
     this.emit('closed', {reason: this.#reason});
