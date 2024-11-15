@@ -23,8 +23,8 @@ npm install
 node index.js
 ```
 
-3. Se rendre sur votre profil [Allocine](https://mon.allocine.fr/mes-films/envie-de-voir/) > Boutton 'Partager' > Copier le lien (de type : [https://www.allocine.fr/membre-Z20220820103049710645480/films/](https://www.allocine.fr/membre-Z20220820103049710645480/films/))
+2. Se rendre sur votre profil [Allocine](https://mon.allocine.fr/mes-films/envie-de-voir/) > Boutton 'Partager' > Copier le lien (de type : [https://www.allocine.fr/membre-Z20220820103049710645480/films/](https://www.allocine.fr/membre-Z20220820103049710645480/films/))
 
-4. Entrez le lien sur le terminal une fois la question posée, et attendre la fin du script.
+3. Entrez le lien sur le terminal une fois la question posée, et attendre la fin du script.
 
-5. Après quelques secondes, le fichier `films-vus.csv` (ou `films-à-voir.csv` pour la liste de film à voir) est généré dans le dossier /Allocine2Letterboxd. Se rendre sur la [page d'import Letterboxd](https://letterboxd.com/import/) des films vus, ou la [page d'import des films à voir](https://letterboxd.com/watchlist/), pour charger le fichier sur son profil.
+4. Après quelques secondes, le fichier `films-vus.csv` (ou `films-à-voir.csv` pour la liste de film à voir) est généré dans le dossier /Allocine2Letterboxd. Se rendre sur la [page d'import Letterboxd](https://letterboxd.com/import/) des films vus, ou la [page d'import des films à voir](https://letterboxd.com/watchlist/), pour charger le fichier sur son profil.
