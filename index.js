@@ -20,9 +20,9 @@ function askQuestion() {
 }
 
 const getAllPages = async (answer) => {
- 
+
   const browser = await puppeteer.launch({
-    browser : 'chrome',
+    browser: 'chrome',
     headless: true,
   });
 
@@ -30,73 +30,83 @@ const getAllPages = async (answer) => {
   const UrlProfil = answer // "https://www.allocine.fr/membre-Z20211228202924534667106/films/"
 
   await page.goto(UrlProfil, {
-    waitUntil: "domcontentloaded", 
+    waitUntil: "domcontentloaded",
     timeout: 60000,
   });
 
-  let tousLesFilms = []; 
+  let tousLesFilms = [];
 
-  const dernierePage = await page.evaluate(el => el.textContent.match(/\d+/), (await page.$$('.pagination-item-holder > a:last-child'))[0])
+  await page.waitForSelector('.pagination-item-holder > a:last-child', { visible: true });
+  const dernierePage = await page.evaluate(() => {
+    const element = document.querySelector('.pagination-item-holder > a:last-child');
+    return element ? element.innerText : null;
+  });
 
   for (let index = 1; index <= dernierePage; index++) {
-    await page.goto(UrlProfil+"?page="+index, {
-    waitUntil: "domcontentloaded",
-    timeout: 60000,
-  })
-      tousLesFilms.unshift(...await extraireTitresEtNotes(page));
-      console.log("Création du fichier....Ne pas fermer le terminal et le navigateur")
+    await page.goto(UrlProfil + "?page=" + index, {
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
+    })
+    tousLesFilms.unshift(...await extraireTitresEtNotes(page));
+    console.log("Création du fichier....Ne pas fermer le terminal et le navigateur")
   }
 
   const elementExists = await page.evaluate(() => {
-    return document.querySelector('.roller-item:last-child').title == 'Critiques'
-  });
-  
-  let data = [];
-  if (!elementExists) {
-    console.log('yes')
+    const elements = document.querySelectorAll('.roller-item');
+    for (let element of elements) {
+        if (element.title === 'Critiques') {
+            return true;
+        }
+    }
+    return false;
+});
+
+let data = [];
+if (!elementExists) {
+    console.log('yes');
     let myJsonString = JSON.stringify(tousLesFilms);
     data = JSON.parse(myJsonString);
-  } else {
-    console.log('no!')
-    data = JSON.parse(await getCritiques(page,UrlProfil,dernierePage, tousLesFilms));
-  }
-  
+} else {
+    console.log('no!');
+    data = JSON.parse(await getCritiques(page, UrlProfil, dernierePage, tousLesFilms));
+}
+
 
   let regex = new RegExp('envie-de-voir');
   if (regex.test(UrlProfil)) {
     // pour générer une liste de films à voir (watchlist)
     let csvContent = "Title\n";
 
-    data.forEach( film => {
+    data.forEach(film => {
       csvContent += film.Title + "\n";
     })
-    
+
     fs.writeFileSync("films-a-voir.csv", csvContent, 'utf-8')
 
   } else if (data[0].hasOwnProperty('Review')) {
     let csvContent = "Title,Rating,Review\n";
 
-    data.forEach( film => {
+    data.forEach(film => {
       csvContent += `"${film.Title}"` + ",";
       csvContent += `"${film.Rating}"` + ",";
       csvContent += `"${film.Review}"` + "\n";
     })
-    console.log("csvContent :",csvContent)
+    console.log("csvContent :", csvContent)
     fs.writeFileSync("films-vus.csv", csvContent, 'utf-8')
 
   } else {
     let csvContent = "Title,Rating\n";
 
-    data.forEach( film => {
+    data.forEach(film => {
       csvContent += `"${film.Title}"` + ",";
       csvContent += `"${film.Rating}"` + "\n";
     })
-    console.log("csvContent :",csvContent)
+    console.log("csvContent :", csvContent)
     fs.writeFileSync("films-vus.csv", csvContent, 'utf-8')
   }
   await browser.close();
-  
-  };
+
+};
 
 async function extraireTitresEtNotes(page) {
 
@@ -107,9 +117,9 @@ async function extraireTitresEtNotes(page) {
 
     Array.from(filmsList).map((film) => {
       const Title = film.querySelector(".thumbnail-img").alt;
-      if(film.querySelector(".rating-mdl")) {
-        const rawNote = film.querySelector(".rating-mdl").className.slice(12,14)
-        const Rating = rawNote.substring(0,1)+"."+rawNote.substring(1,2)
+      if (film.querySelector(".rating-mdl")) {
+        const rawNote = film.querySelector(".rating-mdl").className.slice(12, 14)
+        const Rating = rawNote.substring(0, 1) + "." + rawNote.substring(1, 2)
         data.unshift({ Title, Rating });
       } else {
         data.unshift({ Title });
@@ -121,21 +131,21 @@ async function extraireTitresEtNotes(page) {
 }
 
 async function extraireCritiques(page) {
-return page.evaluate(() => { 
+  return page.evaluate(() => {
     let data = [];
-  // Wait and click on first result
-  const critiquesFilms = document.querySelectorAll(".review-card");
+    // Wait and click on first result
+    const critiquesFilms = document.querySelectorAll(".review-card");
 
-  Array.from(critiquesFilms).map(async (critique) => {
+    Array.from(critiquesFilms).map(async (critique) => {
       const LirePlus = critique.querySelector('.review-card-review-holder > .content-txt.review-card-content > a')
-  if (LirePlus == null){
+      if (LirePlus == null) {
         const Title = critique.querySelector('.review-card-title-bar > .review-card-title > a');
         const Titre = Title.innerText;
         const reviewContainer = critique.querySelector('.review-card-review-holder > .content-txt.review-card-content')
         const Rvw = reviewContainer.textContent;
         const Review = Rvw.replaceAll("\n", "");
-        data.push({Titre, Review});
-    }
+        data.push({ Titre, Review });
+      }
     })
     return data;
   })
@@ -144,23 +154,23 @@ return page.evaluate(() => {
 
 async function extraireLienLirePlus(page) {
 
-  return page.evaluate(() => { 
-      let ArrayLirePlus = [];
+  return page.evaluate(() => {
+    let ArrayLirePlus = [];
 
     const critiquesFilms = document.querySelectorAll(".review-card");
-  
+
     Array.from(critiquesFilms).map(async (critique) => {
-        const LirePlus = critique.querySelector('.review-card-review-holder > .content-txt.review-card-content > a')
-    if (LirePlus !== null){
-          ArrayLirePlus.push(LirePlus.href)
+      const LirePlus = critique.querySelector('.review-card-review-holder > .content-txt.review-card-content > a')
+      if (LirePlus !== null) {
+        ArrayLirePlus.push(LirePlus.href)
       }
-      })
-      return ArrayLirePlus;
     })
-  
+    return ArrayLirePlus;
+  })
+
 }
 
-function unifierCritiquesEtFilms(arr1,arr2) {
+function unifierCritiquesEtFilms(arr1, arr2) {
   for (let i = 0; i < arr2.length; i++) {
     for (let j = 0; j < arr1.length; j++) {
       if (arr1[j].Title == arr2[i].Titre) {
@@ -173,39 +183,39 @@ function unifierCritiquesEtFilms(arr1,arr2) {
   return arr1;
 }
 
-async function getCritiques(page,UrlProfil,dernierePage, tousLesFilms) {
-    let UrlCritique = UrlProfil.replace('films/','critiques/films/');
-    console.log(UrlProfil, '+', UrlCritique)
-    let Critiques = []; 
-    let LirePlus = [];
+async function getCritiques(page, UrlProfil, dernierePage, tousLesFilms) {
+  let UrlCritique = UrlProfil.replace('films/', 'critiques/films/');
+  console.log(UrlProfil, '+', UrlCritique)
+  let Critiques = [];
+  let LirePlus = [];
 
-    await page.goto(UrlCritique, {
-      waitUntil: "domcontentloaded",
-      timeout: 60000,
-    });
-  
+  await page.goto(UrlCritique, {
+    waitUntil: "domcontentloaded",
+    timeout: 60000,
+  });
 
-    for (let index = 1; index <= dernierePage; index++) {
-      
-      await page.goto(UrlCritique+"?page="+index, {
+
+  for (let index = 1; index <= dernierePage; index++) {
+
+    await page.goto(UrlCritique + "?page=" + index, {
       waitUntil: "domcontentloaded",
       timeout: 60000,
     })
-      console.log(UrlCritique+"?page="+index)
-      Critiques = Critiques.concat(await extraireCritiques(page))
-      LirePlus = LirePlus.concat(await extraireLienLirePlus(page))
-    }
-  
-    for (let i = 0; i < LirePlus.length; i++) {
-      await page.goto(LirePlus[i], {
-        waitUntil: "domcontentloaded",
-        timeout: 60000,
-      })
-      Critiques = Critiques.concat(await extraireCritiques(page))
-    }
+    console.log(UrlCritique + "?page=" + index)
+    Critiques = Critiques.concat(await extraireCritiques(page))
+    LirePlus = LirePlus.concat(await extraireLienLirePlus(page))
+  }
 
-    let myJsonString = JSON.stringify(unifierCritiquesEtFilms(tousLesFilms, Critiques));
-    return myJsonString;
+  for (let i = 0; i < LirePlus.length; i++) {
+    await page.goto(LirePlus[i], {
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
+    })
+    Critiques = Critiques.concat(await extraireCritiques(page))
+  }
+
+  let myJsonString = JSON.stringify(unifierCritiquesEtFilms(tousLesFilms, Critiques));
+  return myJsonString;
 }
-  
+
 askQuestion();
