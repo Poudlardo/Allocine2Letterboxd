@@ -113,10 +113,10 @@ async function extraireTitresEtNotes(page) {
   return page.evaluate(() => {
 
     let data = [];
-    const filmsList = document.querySelectorAll(".thumbnail");
+    const filmsList = document.querySelectorAll(".card.entity-card-simple.userprofile-entity-card-simple");
 
     Array.from(filmsList).map((film) => {
-      const Title = film.querySelector(".thumbnail-img").alt;
+      const Title = film.querySelector(".meta-title.meta-title-link").title;
       if (film.querySelector(".rating-mdl")) {
         const rawNote = film.querySelector(".rating-mdl").className.slice(12, 14)
         const Rating = rawNote.substring(0, 1) + "." + rawNote.substring(1, 2)
