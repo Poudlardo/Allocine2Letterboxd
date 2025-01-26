@@ -29,4 +29,4 @@ node index.js
 
 ## Tu rencontres un problème ?
 
-[Ouvre un ticket](https://github.com/Poudlardo/Allocine2Letterboxd/issues/new/choose) en m'y décrivant ton problème en quelques ligne avec un screenshot.
+[Ouvre un ticket](https://github.com/Poudlardo/Allocine2Letterboxd/issues/new/choose) et décris ton problème en quelques lignes avec une capture d'écran.
