@@ -16,7 +16,7 @@ Script qui permet d'importer sur Letterboxd sa liste de films vus, notés et cri
 2. Ouvre un terminal et copie cette ligne de commande à l'endroit où tu souhaites télécharger le dossier du script
 ```
 git clone https://github.com/Poudlardo/Allocine2Letterboxd.git
-cd /Allocine2Letterboxd  
+cd Allocine2Letterboxd/  
 npm install  
 node index.js
 ```
