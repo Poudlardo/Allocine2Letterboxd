@@ -9,8 +9,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "csv-writer": "^1.6.0",
     "fast-csv": "^4.3.6",
-    "puppeteer": "^24.1.0"
+    "puppeteer": "^24.1.0",
+    "readline-sync": "^1.4.10"
   },
   "type": "module",
   "devDependencies": {
