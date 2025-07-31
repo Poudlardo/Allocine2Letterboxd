@@ -1,3 +1,5 @@
 node_modules/
 allocine-films-critiques.csv
-allocine-wishlist.csv
+allocine-films-a-voir.csv
+allocine-films.csv
+.vscode
