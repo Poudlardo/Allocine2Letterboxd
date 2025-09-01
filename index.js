@@ -484,7 +484,7 @@ async function scrapeAllReviews(page, profileUrl) {
 }
 
 async function scrapeWishlist(page, profileUrl) {
-    let url = profileUrl.replace(/\/films\/?$/, "/wishlist/films/");
+    let url = profileUrl.replace(/\/films\/?$/, "/films/envie-de-voir/");
     let wishlistFilms = [];
     const visitedUrls = new Set();
     
