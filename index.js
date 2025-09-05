@@ -509,7 +509,7 @@ async function scrapeWishlist(page, profileUrl) {
                 const title = titleEl?.title?.trim() || "";
                 
                 if (title) {
-                    filmList.push({ title });
+                    filmList.push({ Title: title });
                 }
             }
             
@@ -621,8 +621,8 @@ function displayPlatformInfo() {
             wishlistFilms = await scrapeWishlist(page, url);
             if (wishlistFilms.length) {
                 console.log(`📋 ${wishlistFilms.length} films "à voir" extraits.`);
-                await exportToCsv('allocine-wishlist.csv', ['Title'], wishlistFilms);
-                console.log('✅ Export wishlist : allocine-wishlist.csv');
+                await exportToCsv('allocine-films-a-voir.csv', ['Title'], wishlistFilms);
+                console.log('✅ Export wishlist : allocine-films-a-voir.csv');
             } else {
                 console.log('⚠️  Aucun film dans la wishlist.');
             }
