@@ -1,0 +1,13 @@
+{
+  "discovered": {
+    "filmItem": ".card.entity-card-simple.userprofile-entity-card-simple",
+    "filmTitle": ".meta-title.meta-title-link",
+    "filmRating": ".rating-mdl",
+    "nextPage": ".button.button-md.button-primary-full.button-right",
+    "filmReviewBlock": ".review-card",
+    "filmTitleInReview": ".review-card-title a.xXx",
+    "filmReview": ".content-txt.review-card-content",
+    "lirePlus": "a.xXx"
+  },
+  "sampleTitle": null
+}
