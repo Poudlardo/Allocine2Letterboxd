@@ -40,6 +40,27 @@ try {
 // Helper function to wait for a specific duration
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+function renderProgressBar(current, total, suffix = '') {
+    const width = 36;
+    const pct = total > 0 ? Math.min(current / total, 1) : 0;
+    const filled = Math.round(pct * width);
+    const bar = '█'.repeat(filled) + '░'.repeat(width - filled);
+    const pctStr = Math.round(pct * 100).toString().padStart(3);
+    process.stdout.write(`\r  [${bar}] ${pctStr}% (${current}/${total})${suffix ? ' — ' + suffix : ''}   `);
+}
+
+async function getTotalPages(page) {
+    try {
+        return await page.evaluate(() => {
+            const links = [...document.querySelectorAll('a[href]')];
+            const nums = links
+                .map(a => { const m = (a.getAttribute('href') || '').match(/[?&]page=(\d+)/); return m ? parseInt(m[1]) : 0; })
+                .filter(n => n > 0);
+            return nums.length > 0 ? Math.max(...nums) : 1;
+        });
+    } catch { return 1; }
+}
+
 // Get Puppeteer cache directory in an OS-agnostic way
 function getPuppeteerCacheDir() {
     const platform = os.platform();
@@ -209,316 +230,207 @@ async function scrapeAllFilms(page, profileUrl) {
     const visitedUrls = new Set();
     let pageNumber = 1;
     let consecutiveErrors = 0;
-    
-    console.log(`🎬 Starting film scraping from profile: ${profileUrl}`);
-    
+    let totalPages = null;
+
+    console.log('🎬 Scraping des films...');
+
     while (true) {
         if (visitedUrls.has(url)) break;
         visitedUrls.add(url);
 
-        console.log(`📄 Scraping films page ${pageNumber}: ${url}`);
-        
         try {
-            await page.goto(url, { 
-                waitUntil: 'domcontentloaded',
-                timeout: 15000 
-            });
-            
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
             await delay(1000);
-            
+
             try {
-                console.log('🔍 Waiting for film items to load...');
                 await page.waitForSelector(SELECTORS.filmItem, { timeout: 5000 });
-                console.log('✅ Film items found');
             } catch (e) {
-                console.log(`   ⚠️ Sélecteur principal non trouvé, recherche d'alternatives...`);
-                
                 try {
-                    console.log('🔍 Trying alternative selector...');
                     await page.waitForSelector('.card', { timeout: 3000 });
-                    console.log('✅ Alternative selectors found');
                 } catch (e2) {
-                    console.log(`   ⚠️ Aucun film trouvé sur cette page`);
+                    process.stdout.write('\n');
+                    console.log(`   ⚠️ Aucun film trouvé sur la page ${pageNumber}`);
                     break;
                 }
             }
-            
+
             if (await page.$(SELECTORS.popupAcceptCookies)) {
-                console.log('🍪 Accepting cookies...');
                 await page.click(SELECTORS.popupAcceptCookies);
                 await delay(1000);
             }
-            
+
+            if (totalPages === null) {
+                totalPages = await getTotalPages(page);
+                process.stdout.write(`  📊 ${totalPages} page(s) de films détectée(s)\n`);
+            }
+
             await delay(1500);
-            
             consecutiveErrors = 0;
         } catch (error) {
-            console.log(`   ⚠️ Erreur de navigation: ${error.message}`);
+            process.stdout.write('\n');
+            console.log(`   ⚠️ Erreur de navigation (page ${pageNumber}): ${error.message}`);
             consecutiveErrors++;
-            
             if (consecutiveErrors >= 2) {
-                console.log(`   ❌ Trop d'erreurs consécutives, arrêt du scraping des films`);
+                console.log(`   ❌ Trop d'erreurs consécutives, arrêt`);
                 break;
             }
-            
             pageNumber++;
             url = `${profileUrl}?page=${pageNumber}`;
             continue;
         }
 
-        // Récupérer les films de la page - SANS $$eval
         let pageFilms = [];
         try {
-            console.log('🔍 Extracting films from page...');
-            
             pageFilms = await page.evaluate((selector) => {
                 const elements = document.querySelectorAll(selector);
                 const filmList = [];
-                
-                console.log(`Found ${elements.length} elements with selector: ${selector}`);
-                
                 for (let el of elements) {
                     try {
                         const titleEl = el.querySelector('.meta-title.meta-title-link');
                         const title = titleEl?.title?.trim() || titleEl?.textContent?.trim() || "";
-                        
                         let rating = "";
                         const ratingEl = el.querySelector('.rating-mdl');
                         if (ratingEl) {
                             const match = ratingEl.className.match(/n(\d{2})/);
-                            if (match) {
-                                rating = `${match[1][0]}.${match[1][1]}`;
-                            }
+                            if (match) rating = `${match[1][0]}.${match[1][1]}`;
                         }
-                        
-                        if (title) {
-                            filmList.push({ title, rating });
-                            console.log(`Extracted film: ${title} with rating: ${rating}`);
-                        }
-                    } catch (err) {
-                        console.error('Erreur extraction film:', err);
-                    }
+                        if (title) filmList.push({ title, rating });
+                    } catch (err) {}
                 }
-                
                 return filmList;
             }, SELECTORS.filmItem);
-            
-            console.log(`📝 Extracted ${pageFilms.length} films from page`);
-            
+
             if (pageFilms.length === 0) {
-                console.log(`   🔄 Essai avec sélecteur alternatif...`);
-                
                 pageFilms = await page.evaluate(() => {
                     const elements = document.querySelectorAll('.card');
                     const filmList = [];
-                    
-                    console.log(`Found ${elements.length} elements with alternative selector`);
-                    
                     for (let el of elements) {
                         try {
-                            const titleEl = el.querySelector('.meta-title-link') || 
-                                           el.querySelector('[class*="title"]');
-                            const title = titleEl?.title?.trim() || 
-                                        titleEl?.textContent?.trim() || "";
-                            
+                            const titleEl = el.querySelector('.meta-title-link') || el.querySelector('[class*="title"]');
+                            const title = titleEl?.title?.trim() || titleEl?.textContent?.trim() || "";
                             let rating = "";
-                            const ratingEl = el.querySelector('.rating-mdl') || 
-                                            el.querySelector('[class*="rating"]');
+                            const ratingEl = el.querySelector('.rating-mdl') || el.querySelector('[class*="rating"]');
                             if (ratingEl) {
                                 const match = ratingEl.className.match(/n(\d{2})/);
-                                if (match) {
-                                    rating = `${match[1][0]}.${match[1][1]}`;
-                                }
+                                if (match) rating = `${match[1][0]}.${match[1][1]}`;
                             }
-                            
-                            if (title) {
-                                filmList.push({ title, rating });
-                                console.log(`Alternative extracted film: ${title} with rating: ${rating}`);
-                            }
-                        } catch (err) {
-                            console.error('Erreur extraction film alt:', err);
-                        }
+                            if (title) filmList.push({ title, rating });
+                        } catch (err) {}
                     }
-                    
                     return filmList;
                 });
             }
-            
         } catch (error) {
-            console.log(`   ❌ Erreur lors de l'extraction: ${error.message}`);
+            process.stdout.write('\n');
+            console.log(`   ❌ Erreur extraction page ${pageNumber}: ${error.message}`);
         }
 
         films = films.concat(pageFilms);
-        console.log(`   ✓ ${pageFilms.length} films trouvés sur cette page (total: ${films.length})`);
+        renderProgressBar(pageNumber, totalPages ?? pageNumber, `${films.length} film(s)`);
 
-        console.log(`   🔍 Recherche du bouton page suivante...`);
-        
         let nextPage = null;
         try {
             nextPage = await page.$(SELECTORS.nextPage);
-            if (!nextPage) {
-                nextPage = await page.$(SELECTORS.nextPageAlt);
-            }
-            if (!nextPage) {
-                nextPage = await page.$('a[href*="?page="]');
-            }
+            if (!nextPage) nextPage = await page.$(SELECTORS.nextPageAlt);
+            if (!nextPage) nextPage = await page.$('a[href*="?page="]');
         } catch (e) {
-            console.log(`   ⚠️ Erreur lors de la recherche du bouton suivant: ${e.message}`);
             break;
         }
-        
-        if (!nextPage) {
-            console.log(`   📄 Pas de bouton page suivante trouvé - fin de la pagination`);
-            break;
-        }
-        
-        const nextHref = await page.evaluate(el => {
-            return el.getAttribute('href') || el.href;
-        }, nextPage).catch(() => null);
-        
-        if (!nextHref) {
-            console.log(`   📄 Plus de pages suivantes - fin de la pagination`);
-            break;
-        }
-        
+
+        if (!nextPage) break;
+
+        const nextHref = await page.evaluate(el => el.getAttribute('href') || el.href, nextPage).catch(() => null);
+        if (!nextHref) break;
+
         let finalUrl = nextHref;
         if (!nextHref.startsWith('http')) {
             try {
                 const baseUrl = new URL(page.url());
                 finalUrl = new URL(nextHref, baseUrl.origin).href;
             } catch (e) {
-                console.log(`   ⚠️ Erreur URL: ${e.message}`);
                 break;
             }
         }
-        
-        if (visitedUrls.has(finalUrl)) {
-            console.log(`   📄 Page déjà visitée - fin de la pagination`);
-            break;
-        }
-        
+
+        if (visitedUrls.has(finalUrl)) break;
+
         url = finalUrl;
         pageNumber++;
-        
-        // Limiter à 20 pages max pour tests (100 pour production)
+
         if (pageNumber > 20) {
+            process.stdout.write('\n');
             console.log(`   ⚠️ Limite de 20 pages atteinte`);
             break;
         }
     }
-    
-    console.log(`🎬 Total: ${films.length} films extraits.`);
+
+    process.stdout.write('\n');
+    console.log(`✅ ${films.length} films extraits au total`);
     return films;
 }
 
 async function scrapeAllReviews(page, profileUrl) {
-    console.log('🎬 Starting review scraping...');
-    
+    console.log('\n📝 Scraping des critiques...');
+
     const reviews = [];
     await gotoTabCritiques(page, profileUrl);
-    
+
     let currentUrl = page.url();
     const visitedUrls = new Set();
     let pageNum = 1;
+    let totalPages = null;
 
     while (true) {
-        if (visitedUrls.has(currentUrl)) {
-            console.log(`⚠️  URL déjà visitée, arrêt: ${currentUrl}`);
-            break;
-        }
+        if (visitedUrls.has(currentUrl)) break;
         visitedUrls.add(currentUrl);
 
-        console.log(`📝 Scraping critiques page ${pageNum}: ${currentUrl}`);
-        
         try {
-            console.log('🔍 Waiting for review blocks...');
             await page.waitForSelector(SELECTORS.filmReviewBlock, { timeout: 5000 });
         } catch (e) {
-            console.log(`⚠️  Aucune critique trouvée sur la page ${pageNum}`);
+            if (pageNum === 1) process.stdout.write('  ℹ️  Aucune critique trouvée sur ce profil\n');
             break;
         }
-        
-        // Récupérer les critiques SANS $$eval
+
+        if (totalPages === null) {
+            totalPages = await getTotalPages(page);
+            process.stdout.write(`  📊 ${totalPages} page(s) de critiques détectée(s)\n`);
+        }
+
         let pageReviews = [];
         try {
-            console.log('🔍 Extracting reviews from page...');
-            
             pageReviews = await page.evaluate((selector) => {
                 const blocks = document.querySelectorAll(selector);
                 const reviews = [];
-                
-                console.log(`Found ${blocks.length} review blocks`);
-                
                 for (let block of blocks) {
-                    let filmTitle = "";
-                    let reviewText = "";
-                    let hasLirePlus = false;
-                    let moreUrl = "";
-
-                    try {
-                        const titleEl = block.querySelector('.review-card-title a.xXx');
-                        filmTitle = titleEl ? titleEl.textContent.trim() : '';
-                    } catch (e) {
-                        filmTitle = '';
-                    }
-
-                    try {
-                        const reviewEl = block.querySelector('.content-txt.review-card-content');
-                        reviewText = reviewEl ? reviewEl.textContent.trim() : '';
-                    } catch (e) {
-                        reviewText = '';
-                    }
-
-                    try {
-                        const lirePlusEl = block.querySelector('a.xXx.blue-link.link-more');
-                        if (lirePlusEl) {
-                            hasLirePlus = true;
-                            moreUrl = lirePlusEl.href;
-                        }
-                    } catch (e) {
-                        hasLirePlus = false;
-                    }
-
-                    reviews.push({
-                        filmTitle,
-                        reviewText,
-                        hasLirePlus,
-                        moreUrl
-                    });
-                    
-                    console.log(`Extracted review for: ${filmTitle}`);
+                    let filmTitle = "", reviewText = "", hasLirePlus = false, moreUrl = "";
+                    try { const el = block.querySelector('.review-card-title a.xXx'); filmTitle = el ? el.textContent.trim() : ''; } catch (e) {}
+                    try { const el = block.querySelector('.content-txt.review-card-content'); reviewText = el ? el.textContent.trim() : ''; } catch (e) {}
+                    try { const el = block.querySelector('a.xXx.blue-link.link-more'); if (el) { hasLirePlus = true; moreUrl = el.href; } } catch (e) {}
+                    reviews.push({ filmTitle, reviewText, hasLirePlus, moreUrl });
                 }
-                
                 return reviews;
             }, SELECTORS.filmReviewBlock);
         } catch (error) {
-            console.log(`   ⚠️ Erreur lors de l'extraction des critiques: ${error.message}`);
+            process.stdout.write('\n');
+            console.log(`   ⚠️ Erreur extraction critiques page ${pageNum}: ${error.message}`);
         }
 
-        if (pageReviews.length === 0) {
-            console.log(`⚠️  Aucune critique trouvée sur la page ${pageNum}`);
-            break;
-        }
+        if (pageReviews.length === 0) break;
 
-        console.log(`   ✓ ${pageReviews.length} critiques trouvées sur cette page`);
-
-        for (let [idx, reviewData] of pageReviews.entries()) {
+        for (let reviewData of pageReviews) {
             let { filmTitle, reviewText, hasLirePlus, moreUrl } = reviewData;
-            
-            console.log(`      🎬 ${filmTitle}`);
 
             if (hasLirePlus && moreUrl) {
                 try {
                     const originalUrl = page.url();
-                    console.log(`      🔍 Clic sur "lire plus" pour: ${filmTitle}`);
                     await page.goto(moreUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
                     await page.waitForSelector(SELECTORS.filmReview, { timeout: 5000 }).catch(() => {});
                     reviewText = await page.$eval(SELECTORS.filmReview, el => el.textContent.trim()).catch(() => reviewText);
-                    console.log(`      ✅ Critique extraite (${reviewText.length} chars)`);
                     await page.goto(originalUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
                     await page.waitForSelector(SELECTORS.filmReviewBlock, { timeout: 5000 }).catch(() => {});
                 } catch (e) {
-                    console.log(`      ⚠️  Erreur sur 'lire plus', texte tronqué conservé: ${e.message}`);
+                    process.stdout.write('\n');
+                    console.log(`   ⚠️ "Lire plus" échoué pour "${filmTitle}": ${e.message}`);
                 }
             }
 
@@ -528,103 +440,89 @@ async function scrapeAllReviews(page, profileUrl) {
             });
         }
 
+        renderProgressBar(pageNum, totalPages ?? pageNum, `${reviews.length} critique(s)`);
+
         const nextPageButton = await page.$(SELECTORS.nextPage);
-        if (!nextPageButton) {
-            console.log(`📄 Pas de page suivante trouvée, fin du scraping`);
-            break;
-        }
+        if (!nextPageButton) break;
 
-        const isClickable = await page.evaluate(button => {
-            return button && !button.disabled && button.offsetParent !== null;
-        }, nextPageButton);
-
-        if (!isClickable) {
-            console.log(`📄 Bouton page suivante non cliquable, fin du scraping`);
-            break;
-        }
+        const isClickable = await page.evaluate(btn => btn && !btn.disabled && btn.offsetParent !== null, nextPageButton);
+        if (!isClickable) break;
 
         try {
-            console.log('🖱️ Clicking next page button...');
             await nextPageButton.click();
             await delay(2000);
-            
             const newUrl = page.url();
-            if (newUrl === currentUrl) {
-                console.log(`📄 URL inchangée après clic, fin du scraping`);
-                break;
-            }
-            
+            if (newUrl === currentUrl) break;
             currentUrl = newUrl;
             pageNum++;
-            
         } catch (e) {
-            console.log(`❌ Erreur lors du clic sur page suivante: ${e.message}`);
+            process.stdout.write('\n');
+            console.log(`   ❌ Erreur pagination critiques: ${e.message}`);
             break;
         }
     }
-    
-    console.log(`🎬 Total reviews scraped: ${reviews.length}`);
+
+    process.stdout.write('\n');
+    console.log(`✅ ${reviews.length} critiques extraites au total`);
     return reviews;
 }
 
 async function scrapeWishlist(page, profileUrl) {
-    console.log('🎬 Starting wishlist scraping...');
-    
+    console.log('\n📋 Scraping de la wishlist...');
+
     let url = profileUrl.replace(/\/films\/?$/, "/films/envie-de-voir/");
     let wishlistFilms = [];
     const visitedUrls = new Set();
-    
+    let pageNum = 1;
+    let totalPages = null;
+
     while (true) {
         if (visitedUrls.has(url)) break;
         visitedUrls.add(url);
 
-        console.log(`📋 Scraping wishlist page: ${url}`);
         await page.goto(url, { waitUntil: 'domcontentloaded' });
-        
+
         if (await page.$(SELECTORS.popupAcceptCookies)) {
-            console.log('🍪 Accepting cookies...');
             await page.click(SELECTORS.popupAcceptCookies);
             await delay(600);
         }
-        
-        // Récupérer les films SANS $$eval
+
+        if (totalPages === null) {
+            totalPages = await getTotalPages(page);
+            process.stdout.write(`  📊 ${totalPages} page(s) de wishlist détectée(s)\n`);
+        }
+
         const films = await page.evaluate((selector) => {
             const elements = document.querySelectorAll(selector);
             const filmList = [];
-            
-            console.log(`Found ${elements.length} wishlist items`);
-            
             for (let el of elements) {
                 const titleEl = el.querySelector('.meta-title.meta-title-link');
                 const title = titleEl?.title?.trim() || "";
-                
-                if (title) {
-                    filmList.push({ Title: title });
-                    console.log(`Wishlist film: ${title}`);
-                }
+                if (title) filmList.push({ Title: title });
             }
-            
             return filmList;
         }, SELECTORS.filmItem);
-        
+
         wishlistFilms = wishlistFilms.concat(films);
-        console.log(`   ✓ ${films.length} films wishlist trouvés`);
+        renderProgressBar(pageNum, totalPages ?? pageNum, `${wishlistFilms.length} film(s)`);
 
         const nextPage = await page.$(SELECTORS.nextPage);
         if (!nextPage) break;
         const nextHref = await page.evaluate(el => el.getAttribute('href') || el.href, nextPage);
-        
+
         let finalUrl = nextHref;
         if (nextHref && !nextHref.startsWith('http')) {
             const baseUrl = new URL(page.url());
             finalUrl = new URL(nextHref, baseUrl.origin).href;
         }
-        
+
         if (!finalUrl || !finalUrl.startsWith('http') || visitedUrls.has(finalUrl)) break;
         url = finalUrl;
+        pageNum++;
     }
-    
-    console.log(`🎬 Wishlist total: ${wishlistFilms.length} films`);
+
+    process.stdout.write('\n');
+    console.log(`✅ ${wishlistFilms.length} films en wishlist`);
     return wishlistFilms;
 }
 
@@ -730,12 +628,13 @@ async function createNewPage(browser) {
 }
 
 async function main() {
-    console.log('🎬 Allocine2Letterboxd Scraper');
-    console.log('=============================');
+    console.log('');
+    console.log('  🎬  Allocine2Letterboxd');
+    console.log('  ════════════════════════');
     displayPlatformInfo();
-    console.log('=============================\n');
-    
-    const rawUrl = await askQuestion('Copie-colle ici ton lien de profil Allociné :\n> ');
+    console.log('');
+
+    const rawUrl = await askQuestion('Lien de ton profil AlloCiné :\n> ');
     let url = rawUrl.trim();
     
     // Normaliser l'URL (ajouter /films/ si manquant)
@@ -747,92 +646,61 @@ async function main() {
         process.exit(1);
     }
     
-    console.log('⏳ Scraping en cours, merci de patienter...');
-    
+    console.log('⏳ Lancement du navigateur...\n');
+
     let browser;
     try {
         browser = await launchBrowser();
-        console.log('✅ Browser launched successfully');
     } catch (error) {
         console.error('❌ Impossible de lancer un navigateur:', error.message);
-        console.error('💡 Suggestion: Essayez d\'installer manuellement avec:');
-        console.error('   npx puppeteer browsers install chrome');
+        console.error('   Essayez : npx puppeteer browsers install chrome');
         process.exit(1);
     }
-    
-    let page = await browser.newPage();
-    console.log('✅ New page created');
 
+    let page = await browser.newPage();
     let films = [];
     let reviews = [];
     let wishlistFilms = [];
 
     try {
-        console.log('\n📖 === SCRAPING DES FILMS ===');
         films = await scrapeAllFilms(page, url);
-        console.log(`\n✅ Scraping des films terminé. Total films: ${films.length}`);
 
-        // Recreate page for review scraping to avoid detached frame issues
         page = await createNewPage(browser);
-        
-        console.log('\n📝 === SCRAPING DES CRITIQUES ===');
         try {
             reviews = await scrapeAllReviews(page, url);
-            if (reviews.length) {
-                console.log(`📝 ${reviews.length} critiques extraites au total.`);
-            } else {
-                console.log("⚠️  Aucune critique trouvée sur ce profil.");
-            }
         } catch (error) {
-            console.log(`⚠️  Erreur lors du scraping des critiques: ${error.message}`);
-            console.log("   Continuation avec les films uniquement...");
+            process.stdout.write('\n');
+            console.log(`⚠️  Erreur critiques: ${error.message} — continuation sans critiques`);
             reviews = [];
         }
 
-        // Recreate page for wishlist scraping
         page = await createNewPage(browser);
-        
-        console.log('\n📋 === SCRAPING DE LA WISHLIST ===');
         try {
             wishlistFilms = await scrapeWishlist(page, url);
             if (wishlistFilms.length) {
-                console.log(`📋 ${wishlistFilms.length} films "à voir" extraits.`);
                 await exportToCsv('allocine-films-a-voir.csv', ['Title'], wishlistFilms);
-                console.log('✅ Export wishlist : allocine-films-a-voir.csv');
-            } else {
-                console.log('⚠️  Aucun film dans la wishlist.');
+                console.log('💾 Wishlist exportée : allocine-films-a-voir.csv');
             }
         } catch (error) {
-            console.log(`⚠️  Erreur lors du scraping de la wishlist: ${error.message}`);
+            console.log(`⚠️  Erreur wishlist: ${error.message}`);
         }
     } catch (error) {
-        console.log(`⚠️  Erreur lors du scraping: ${error.message}`);
+        console.log(`⚠️  Erreur scraping: ${error.message}`);
     }
 
-    console.log('\n💾 === EXPORT DES DONNÉES ===');
-    
-    // Debug: Check what we have to export
-    console.log(`Debug info: films=${films.length}, reviews=${reviews.length}`);
-    
-    // Always generate films CSV with 3 columns (Title, Rating, Review)
-    console.log('📄 Generating films CSV with 3 columns...');
+    console.log('');
     if (films.length > 0) {
-        let entries;
-        if (reviews.length > 0) {
-            console.log('📝 Merging films with reviews...');
-            entries = mergeFilmsAndReviews(films, reviews);
-        } else {
-            console.log('📝 Generating films with empty review column...');
-            entries = films.map(x => ({ Title: x.title, Rating: x.rating, Review: "" }));
-        }
+        const entries = reviews.length > 0
+            ? mergeFilmsAndReviews(films, reviews)
+            : films.map(x => ({ Title: x.title, Rating: x.rating, Review: "" }));
         await exportToCsv('allocine-films.csv', ['Title', 'Rating', 'Review'], entries);
-        console.log('✅ Export films (3 columns) : allocine-films.csv');
+        console.log('💾 Films exportés : allocine-films.csv');
     } else {
-        console.log('⚠️  No films found to export.');
+        console.log('⚠️  Aucun film trouvé à exporter.');
     }
-    
+
     await browser.close();
-    console.log('🎉 Fini !');
+    console.log('\n🎉 Terminé !');
 }
 
 main().catch(console.error);
