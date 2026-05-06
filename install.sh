@@ -15,6 +15,7 @@ echo    "  ═══════════════════════
 
 OS="$(uname -s)"
 REPO_URL="https://github.com/Poudlardo/Allocine2Letterboxd.git"
+REPO_BRANCH="main"
 INSTALL_DIR="$HOME/Allocine2Letterboxd"
 
 # ── Charger nvm si disponible ──────────────────────────────────────────────────
@@ -80,8 +81,8 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     git -C "$INSTALL_DIR" pull --ff-only
     ok "Projet mis à jour"
 else
-    git clone "$REPO_URL" "$INSTALL_DIR"
-    ok "Projet cloné dans $INSTALL_DIR"
+    git clone --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR"
+    ok "Projet cloné dans $INSTALL_DIR (branche : $REPO_BRANCH)"
 fi
 
 # ── Dépendances npm ────────────────────────────────────────────────────────────

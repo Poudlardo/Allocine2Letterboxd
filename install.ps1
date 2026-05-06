@@ -12,6 +12,7 @@ Write-Host "  Allocine2Letterboxd - Installateur Windows" -ForegroundColor White
 Write-Host "  ============================================" -ForegroundColor White
 
 $REPO_URL    = "https://github.com/Poudlardo/Allocine2Letterboxd.git"
+$REPO_BRANCH = "main"
 $INSTALL_DIR = Join-Path $env:USERPROFILE "Allocine2Letterboxd"
 
 # ── Recharger le PATH depuis le registre ──────────────────────────────────────
@@ -68,8 +69,8 @@ if (Test-Path (Join-Path $INSTALL_DIR ".git")) {
     git -C $INSTALL_DIR pull --ff-only
     Write-Ok "Projet mis a jour"
 } else {
-    git clone $REPO_URL $INSTALL_DIR
-    Write-Ok "Projet clone dans $INSTALL_DIR"
+    git clone --branch $REPO_BRANCH $REPO_URL $INSTALL_DIR
+    Write-Ok "Projet clone dans $INSTALL_DIR (branche : $REPO_BRANCH)"
 }
 
 # ── Dependances npm ───────────────────────────────────────────────────────────
