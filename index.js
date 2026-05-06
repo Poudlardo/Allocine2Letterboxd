@@ -129,6 +129,29 @@ async function installBrowser(browserName) {
     }
 }
 
+// Cherche un navigateur installé sur le système (sans Puppeteer)
+function findSystemBrowser() {
+    const candidates = os.platform() === 'win32'
+        ? [] // sur Windows on laisse Puppeteer gérer
+        : ['firefox', 'firefox-esr', 'chromium-browser', 'chromium', 'google-chrome', 'google-chrome-stable'];
+
+    for (const bin of candidates) {
+        try {
+            const p = execSync(`which ${bin} 2>/dev/null`, { encoding: 'utf8' }).trim();
+            if (p) return { bin, path: p };
+        } catch {}
+    }
+    return null;
+}
+
+function isMissingSystemLibs(errorMessage) {
+    return errorMessage.includes('cannot open shared object file')
+        || errorMessage.includes('No such file or directory')
+        || errorMessage.includes('libgtk')
+        || errorMessage.includes('libatk')
+        || errorMessage.includes('libgbm');
+}
+
 // Function to launch browser with automatic installation
 async function launchBrowser() {
     const commonArgs = [
@@ -138,16 +161,35 @@ async function launchBrowser() {
         '--disable-gpu',
     ];
 
-    // Ordre de préférence : Firefox > Chrome
-    // Note : 'chromium' n'a pas de version épinglée dans Puppeteer, on ne peut pas l'installer via npx
-    const candidates = [
+    // ── Étape 1 : navigateur système (pas besoin de sudo ni de téléchargement) ──
+    const system = findSystemBrowser();
+    if (system) {
+        console.log(`🔍 Navigateur système détecté : ${system.path}`);
+        try {
+            const isFirefox = system.bin.includes('firefox');
+            const browser = await puppeteer.launch({
+                executablePath: system.path,
+                ...(isFirefox ? { browser: 'firefox' } : {}),
+                headless: true,
+                args: commonArgs
+            });
+            console.log(`✅ ${system.bin} (système) lancé`);
+            return browser;
+        } catch (e) {
+            console.log(`⚠️  ${system.bin} système échec : ${e.message}`);
+        }
+    }
+
+    // ── Étape 2 : navigateurs Puppeteer (téléchargés dans ~/.cache/puppeteer) ──
+    const puppeteerCandidates = [
         { name: 'firefox', launchOpts: { browser: 'firefox', headless: true } },
         { name: 'chrome',  launchOpts: { headless: true } },
     ];
 
-    for (const { name, launchOpts } of candidates) {
+    let missingLibs = false;
+    for (const { name, launchOpts } of puppeteerCandidates) {
         if (!isBrowserInstalled(name)) {
-            console.log(`📥 ${name} absent du cache, installation...`);
+            console.log(`📥 ${name} absent du cache Puppeteer, installation...`);
             const ok = await installBrowser(name);
             if (!ok) {
                 console.log(`⚠️  Installation ${name} échouée, tentative suivante...`);
@@ -156,14 +198,25 @@ async function launchBrowser() {
         }
         try {
             const browser = await puppeteer.launch({ ...launchOpts, args: commonArgs });
-            console.log(`✅ ${name} lancé`);
+            console.log(`✅ ${name} (Puppeteer) lancé`);
             return browser;
         } catch (e) {
-            console.log(`⚠️  ${name} échec au lancement : ${e.message}`);
+            if (isMissingSystemLibs(e.message)) missingLibs = true;
+            console.log(`⚠️  ${name} échec : ${e.message.split('\n')[0]}`);
         }
     }
 
-    throw new Error('Impossible de lancer un navigateur (firefox, chromium et chrome ont tous échoué).');
+    // ── Étape 3 : diagnostic clair ──────────────────────────────────────────────
+    if (missingLibs) {
+        console.error('\n❌ Des librairies système manquent pour lancer le navigateur.');
+        console.error('   Installez-les avec la commande suivante (une seule fois) :');
+        console.error('\n   sudo apt-get install -y libgtk-3-0 libatk1.0-0 libatk-bridge2.0-0 \\');
+        console.error('     libnss3 libgbm1 libxss1 libdbus-glib-1-2 libasound2 2>/dev/null || \\');
+        console.error('   sudo apt-get install -y libgtk-3-0 libatk1.0-0 libatk-bridge2.0-0 \\');
+        console.error('     libnss3 libgbm1 libxss1 libdbus-glib-1-2 libasound2t64\n');
+    }
+
+    throw new Error('Impossible de lancer un navigateur. Voir les instructions ci-dessus.');
 }
 
 async function gotoTabCritiques(page, url) {
