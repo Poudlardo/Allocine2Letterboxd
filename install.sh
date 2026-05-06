@@ -90,22 +90,6 @@ else
     ok "Node.js installé — $(node --version)"
 fi
 
-# ── Dépendances système pour les navigateurs headless (Linux uniquement) ───────
-if [ "$OS" = "Linux" ] && has apt-get; then
-    step "Dépendances système (navigateurs headless)"
-    # Ces librairies sont requises par Firefox et Chrome même en mode headless.
-    # Ubuntu 24+ a renommé libasound2 en libasound2t64, on essaie les deux.
-    sudo apt-get install -y --no-install-recommends \
-        libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 \
-        libgtk-3-0 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
-        libxrandr2 libpango-1.0-0 libcairo2 libnss3 libnspr4 \
-        libdbus-glib-1-2 libx11-xcb1 libxss1 2>/dev/null || true
-    # libasound2 renommé libasound2t64 sur Ubuntu 24.04+
-    sudo apt-get install -y --no-install-recommends libasound2 2>/dev/null \
-        || sudo apt-get install -y --no-install-recommends libasound2t64 2>/dev/null || true
-    ok "Librairies système prêtes"
-fi
-
 # ── Dépôt ─────────────────────────────────────────────────────────────────────
 step "Récupération du projet"
 if [ -d "${INSTALL_DIR}/.git" ]; then
