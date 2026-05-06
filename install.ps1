@@ -7,6 +7,8 @@ function Write-Ok($msg)   { Write-Host "  [OK] $msg" -ForegroundColor Green }
 function Write-Warn($msg) { Write-Host "  [!]  $msg" -ForegroundColor Yellow }
 function Write-Err($msg)  { Write-Host "  [X]  $msg" -ForegroundColor Red; exit 1 }
 
+$ALLOCINE_URL = Read-Host "Lien de ton profil AlloCine"
+
 Write-Host ""
 Write-Host "  Allocine2Letterboxd - Installateur Windows" -ForegroundColor White
 Write-Host "  ============================================" -ForegroundColor White
@@ -78,10 +80,6 @@ Write-Step "Installation des dependances"
 Set-Location $INSTALL_DIR
 npm install --silent
 Write-Ok "Dependances installees"
-
-# ── Lien AlloCiné ────────────────────────────────────────────────────────────
-Write-Host ""
-$ALLOCINE_URL = Read-Host "Lien de ton profil AlloCine"
 
 # ── Lancement ─────────────────────────────────────────────────────────────────
 Write-Host "`n  Tout est pret ! Lancement...`n" -ForegroundColor White

@@ -12,9 +12,6 @@ warn() { printf "  ${YELLOW}!${NC}   %s\n" "$1"; }
 die()  { printf "  ${RED}ERR${NC} %s\n" "$1" >&2; exit 1; }
 has()  { command -v "$1" >/dev/null 2>&1; }
 
-printf "\n${BOLD}  Allocine2Letterboxd — Installateur${NC}\n"
-printf "  ======================================\n\n"
-
 OS="$(uname -s 2>/dev/null || printf 'unknown')"
 REPO_URL="https://github.com/Poudlardo/Allocine2Letterboxd.git"
 REPO_BRANCH="main"
@@ -29,6 +26,17 @@ load_nvm() {
     [ -s "${NVM_DIR}/nvm.sh" ] && . "${NVM_DIR}/nvm.sh"
 }
 load_nvm
+
+# ── Lien AlloCiné en premier ───────────────────────────────────────────────────
+printf "${BOLD}Lien de ton profil AlloCiné :${NC}\n> "
+if [ -t 0 ]; then
+    read -r ALLOCINE_URL
+else
+    read -r ALLOCINE_URL </dev/tty
+fi
+
+printf "\n${BOLD}  Allocine2Letterboxd — Installateur${NC}\n"
+printf "  ======================================\n\n"
 
 # ── Git ────────────────────────────────────────────────────────────────────────
 step "Vérification de Git"
@@ -108,15 +116,6 @@ cd "${INSTALL_DIR}" || die "Impossible d'accéder à ${INSTALL_DIR}"
 load_nvm  # recharge node si fraîchement installé
 npm install --silent || die "npm install échoué"
 ok "Dépendances installées"
-
-# ── Lien AlloCiné ─────────────────────────────────────────────────────────────
-printf "\n${BOLD}Lien de ton profil AlloCiné :${NC}\n> "
-# Lire depuis /dev/tty : stdin est occupé par le pipe curl|bash
-if [ -t 0 ]; then
-    read -r ALLOCINE_URL
-else
-    read -r ALLOCINE_URL </dev/tty
-fi
 
 # ── Lancement ──────────────────────────────────────────────────────────────────
 printf "\n${BOLD}  Tout est prêt ! Lancement...${NC}\n\n"
