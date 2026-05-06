@@ -1,0 +1,72 @@
+name: Selector Health Check
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'   # Tous les lundis à 9h UTC
+  workflow_dispatch:        # Déclenchement manuel possible depuis GitHub
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Installer Chrome pour Puppeteer
+        run: npx puppeteer browsers install chrome
+
+      - name: Lancer le check des sélecteurs
+        env:
+          ALLOCINE_TEST_URL: ${{ secrets.ALLOCINE_TEST_URL }}
+        run: node check-selectors.js
+
+      - name: Ouvrir une Issue si les sélecteurs sont cassés
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const date = new Date().toISOString().split('T')[0];
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              state: 'open',
+              labels: 'selectors-broken'
+            });
+
+            // Ne pas ouvrir une deuxième issue si une est déjà ouverte
+            if (issues.length > 0) {
+              console.log('Issue déjà ouverte :', issues[0].html_url);
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              title: `⚠️ Sélecteurs AlloCiné cassés — ${date}`,
+              body: [
+                '## Détection automatique',
+                '',
+                `Le check hebdomadaire du **${date}** a détecté que les sélecteurs CSS d'AlloCiné ne fonctionnent plus correctement.`,
+                '',
+                '### Actions à effectuer',
+                '1. Lancer `node discovery.js` pour redétecter les sélecteurs',
+                '2. Mettre à jour `selectors.json` avec les nouveaux sélecteurs',
+                '3. Fermer cette issue',
+                '',
+                `### Lien vers le run échoué`,
+                runUrl
+              ].join('\n'),
+              labels: ['bug', 'selectors-broken']
+            });
