@@ -10,7 +10,7 @@ Exporte ta liste de films vus, notés et critiqués sur AlloCiné vers un fichie
 
 ## Installation en une commande
 
-Copie-colle la commande correspondant à ton système. Le script installe automatiquement Git et Node.js si nécessaire, puis lance l'outil.
+Copie-colle la commande correspondant à ton système. Git et Node.js sont installés automatiquement si nécessaire.
 
 **macOS / Linux / WSL**
 ```bash
@@ -39,12 +39,6 @@ Une fois terminé, deux fichiers sont générés dans le dossier `Allocine2Lette
 |---|---|---|
 | `allocine-films.csv` | Films vus, notes, critiques | [Letterboxd — Films vus](https://letterboxd.com/import/) |
 | `allocine-films-a-voir.csv` | Wishlist | [Letterboxd — Watchlist](https://letterboxd.com/watchlist/) |
-
----
-
-## Mises à jour
-
-Pour mettre à jour le script, relance simplement la même commande d'installation. Elle détecte le dossier existant et le met à jour automatiquement.
 
 ---
 
