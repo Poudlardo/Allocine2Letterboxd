@@ -635,7 +635,7 @@ async function main() {
     displayPlatformInfo();
     console.log('');
 
-    const rawUrl = await askQuestion('Lien de ton profil AlloCiné :\n> ');
+    const rawUrl = process.argv[2] || await askQuestion('Lien de ton profil AlloCiné :\n> ');
     let url = rawUrl.trim();
     
     // Normaliser l'URL (ajouter /films/ si manquant)
