@@ -137,70 +137,33 @@ async function launchBrowser() {
         '--disable-dev-shm-usage',
         '--disable-gpu',
     ];
-    
-    console.log('🦊 Checking Firefox availability...');
-    
-    if (!isBrowserInstalled('firefox')) {
-        console.log('📥 Firefox not found in cache, installing...');
-        const firefoxInstalled = await installBrowser('firefox');
-        
-        if (firefoxInstalled) {
-            try {
-                const browser = await puppeteer.launch({
-                    browser: 'firefox',
-                    headless: true,
-                    args: commonArgs
-                });
-                console.log('✅ Firefox launched successfully');
-                return browser;
-            } catch (error) {
-                console.log('⚠️  Firefox launch failed:', error.message);
+
+    // Ordre de préférence : Firefox > Chromium > Chrome
+    const candidates = [
+        { name: 'firefox',  launchOpts: { browser: 'firefox', headless: true } },
+        { name: 'chromium', launchOpts: { headless: true } },
+        { name: 'chrome',   launchOpts: { headless: true } },
+    ];
+
+    for (const { name, launchOpts } of candidates) {
+        if (!isBrowserInstalled(name)) {
+            console.log(`📥 ${name} absent du cache, installation...`);
+            const ok = await installBrowser(name);
+            if (!ok) {
+                console.log(`⚠️  Installation ${name} échouée, tentative suivante...`);
+                continue;
             }
         }
-    } else {
         try {
-            const browser = await puppeteer.launch({
-                browser: 'firefox',
-                headless: true,
-                args: commonArgs
-            });
-            console.log('✅ Firefox launched successfully');
+            const browser = await puppeteer.launch({ ...launchOpts, args: commonArgs });
+            console.log(`✅ ${name} lancé`);
             return browser;
-        } catch (error) {
-            console.log('⚠️  Firefox launch failed:', error.message);
+        } catch (e) {
+            console.log(`⚠️  ${name} échec au lancement : ${e.message}`);
         }
     }
-    
-    console.log('🔵 Switching to Chrome...');
-    
-    if (!isBrowserInstalled('chrome')) {
-        console.log('📥 Chrome not found in cache, installing...');
-        const chromeInstalled = await installBrowser('chrome');
-        
-        if (!chromeInstalled) {
-            throw new Error('Failed to install any browser. Please check your internet connection and permissions.');
-        }
-    }
-    
-    try {
-        const browser = await puppeteer.launch({
-            headless: 'new',
-            args: commonArgs
-        });
-        console.log('✅ Chrome launched successfully');
-        return browser;
-    } catch (error) {
-        try {
-            const browser = await puppeteer.launch({
-                headless: true,
-                args: ['--no-sandbox']
-            });
-            console.log('✅ Chrome launched successfully (minimal args)');
-            return browser;
-        } catch (fallbackError) {
-            throw new Error(`Failed to launch Chrome: ${error.message}`);
-        }
-    }
+
+    throw new Error('Impossible de lancer un navigateur (firefox, chromium et chrome ont tous échoué).');
 }
 
 async function gotoTabCritiques(page, url) {
