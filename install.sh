@@ -109,12 +109,19 @@ load_nvm  # recharge node si fraîchement installé
 npm install --silent || die "npm install échoué"
 ok "Dépendances installées"
 
+# ── Lien AlloCiné ─────────────────────────────────────────────────────────────
+printf "\n${BOLD}Lien de ton profil AlloCiné :${NC}\n> "
+# Lire depuis /dev/tty : stdin est occupé par le pipe curl|bash
+if [ -t 0 ]; then
+    read -r ALLOCINE_URL
+else
+    read -r ALLOCINE_URL </dev/tty
+fi
+
 # ── Lancement ──────────────────────────────────────────────────────────────────
-# Rediriger stdin depuis /dev/tty : quand le script est lu via curl|bash,
-# stdin est occupé par le pipe et node ne peut pas lire la saisie utilisateur.
 printf "\n${BOLD}  Tout est prêt ! Lancement...${NC}\n\n"
 if [ -t 0 ]; then
-    node index.js
+    node index.js "$ALLOCINE_URL"
 else
-    node index.js </dev/tty
+    node index.js "$ALLOCINE_URL" </dev/tty
 fi

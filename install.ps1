@@ -79,6 +79,10 @@ Set-Location $INSTALL_DIR
 npm install --silent
 Write-Ok "Dependances installees"
 
+# ── Lien AlloCiné ────────────────────────────────────────────────────────────
+Write-Host ""
+$ALLOCINE_URL = Read-Host "Lien de ton profil AlloCine"
+
 # ── Lancement ─────────────────────────────────────────────────────────────────
 Write-Host "`n  Tout est pret ! Lancement...`n" -ForegroundColor White
-node index.js
+node index.js $ALLOCINE_URL
