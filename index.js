@@ -445,16 +445,24 @@ async function scrapeAllReviews(page, profileUrl) {
         const nextPageButton = await page.$(SELECTORS.nextPage);
         if (!nextPageButton) break;
 
-        const isClickable = await page.evaluate(btn => btn && !btn.disabled && btn.offsetParent !== null, nextPageButton);
-        if (!isClickable) break;
+        const nextHref = await page.evaluate(el => el.getAttribute('href') || el.href, nextPageButton).catch(() => null);
+        if (!nextHref) break;
+
+        let nextUrl = nextHref;
+        if (!nextHref.startsWith('http')) {
+            try {
+                const baseUrl = new URL(page.url());
+                nextUrl = new URL(nextHref, baseUrl.origin).href;
+            } catch (e) { break; }
+        }
+
+        if (visitedUrls.has(nextUrl)) break;
+        currentUrl = nextUrl;
+        pageNum++;
 
         try {
-            await nextPageButton.click();
-            await delay(2000);
-            const newUrl = page.url();
-            if (newUrl === currentUrl) break;
-            currentUrl = newUrl;
-            pageNum++;
+            await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+            await delay(800);
         } catch (e) {
             process.stdout.write('\n');
             console.log(`   ❌ Erreur pagination critiques: ${e.message}`);
@@ -527,51 +535,28 @@ async function scrapeWishlist(page, profileUrl) {
 }
 
 function mergeFilmsAndReviews(films, reviews) {
-    console.log('🔄 Merging films with reviews...');
-    
     const revmap = Object.fromEntries(reviews.map(r => {
         const normalized = r.title.normalize('NFD').replace(/\p{Diacritic}/gu,"").toLowerCase();
         return [normalized, r.review];
     }));
-    console.log(`Reviews map size: ${Object.keys(revmap).length}`);
-    console.log(`Sample review keys: ${JSON.stringify([...Object.keys(revmap)].slice(0, 5))}`);
-    
-    let matched = 0;
-    let unmatched = 0;
-    
-    const merged = films.map(f => {
-        let baseTitle = f.title.normalize('NFD').replace(/\p{Diacritic}/gu,"").toLowerCase();
-        const review = revmap[baseTitle] ?? "";
-        
-        if (review) {
-            matched++;
-        } else {
-            unmatched++;
-        }
-        
+
+    return films.map(f => {
+        const baseTitle = f.title.normalize('NFD').replace(/\p{Diacritic}/gu,"").toLowerCase();
         return {
             Title: f.title,
             Rating: f.rating,
-            Review: String(review)
+            Review: String(revmap[baseTitle] ?? "")
         };
     });
-    
-    console.log(`Matched: ${matched}, Unmatched: ${unmatched}`);
-    console.log(`Final merged count: ${merged.length}`);
-    return merged;
 }
 
 async function exportToCsv(filename, headers, data) {
-    console.log(`💾 Exporting to CSV: ${filename} with ${data.length} records`);
-    
     const csvWriter = createObjectCsvWriter({
         path: filename,
         header: headers.map(h => ({ id: h, title: h })),
         alwaysQuote: true
     });
-    
     await csvWriter.writeRecords(data);
-    console.log(`✅ File exported: ${filename}`);
 }
 
 function isValidAllocineProfileUrl(url) {
