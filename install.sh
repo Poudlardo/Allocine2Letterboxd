@@ -110,5 +110,11 @@ npm install --silent || die "npm install échoué"
 ok "Dépendances installées"
 
 # ── Lancement ──────────────────────────────────────────────────────────────────
+# Rediriger stdin depuis /dev/tty : quand le script est lu via curl|bash,
+# stdin est occupé par le pipe et node ne peut pas lire la saisie utilisateur.
 printf "\n${BOLD}  Tout est prêt ! Lancement...${NC}\n\n"
-node index.js
+if [ -t 0 ]; then
+    node index.js
+else
+    node index.js </dev/tty
+fi
