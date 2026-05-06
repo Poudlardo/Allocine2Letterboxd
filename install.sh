@@ -1,97 +1,114 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# NE PAS ajouter set -euo pipefail : ce script s'exécute via curl | bash
+# et la moindre commande qui échoue tuerait le processus silencieusement.
 
-# ── Couleurs ───────────────────────────────────────────────────────────────────
+# ── Helpers ────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
 
-step() { echo -e "\n${BLUE}==>${NC} ${BOLD}$1${NC}"; }
-ok()   { echo -e "  ${GREEN}✓${NC} $1"; }
-warn() { echo -e "  ${YELLOW}⚠${NC}  $1"; }
-err()  { echo -e "  ${RED}✗${NC} $1" >&2; exit 1; }
+step() { printf "\n${BLUE}==> ${BOLD}%s${NC}\n" "$1"; }
+ok()   { printf "  ${GREEN}OK${NC}  %s\n" "$1"; }
+warn() { printf "  ${YELLOW}!${NC}   %s\n" "$1"; }
+die()  { printf "  ${RED}ERR${NC} %s\n" "$1" >&2; exit 1; }
+has()  { command -v "$1" >/dev/null 2>&1; }
 
-echo -e "\n${BOLD}  🎬  Allocine2Letterboxd — Installateur${NC}"
-echo    "  ════════════════════════════════════════"
+printf "\n${BOLD}  Allocine2Letterboxd — Installateur${NC}\n"
+printf "  ======================================\n\n"
 
-OS="$(uname -s)"
+OS="$(uname -s 2>/dev/null || printf 'unknown')"
 REPO_URL="https://github.com/Poudlardo/Allocine2Letterboxd.git"
 REPO_BRANCH="main"
-INSTALL_DIR="$HOME/Allocine2Letterboxd"
+INSTALL_DIR="${HOME}/Allocine2Letterboxd"
+NVM_VERSION="v0.40.3"
+NVM_DIR="${NVM_DIR:-${HOME}/.nvm}"
+export NVM_DIR
 
-# ── Charger nvm si disponible ──────────────────────────────────────────────────
+# Charge nvm dans le shell courant
 load_nvm() {
-    export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-    [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
-    [ -s "$NVM_DIR/bash_completion" ] && source "$NVM_DIR/bash_completion"
+    # shellcheck source=/dev/null
+    [ -s "${NVM_DIR}/nvm.sh" ] && . "${NVM_DIR}/nvm.sh"
 }
 load_nvm
 
 # ── Git ────────────────────────────────────────────────────────────────────────
 step "Vérification de Git"
-if command -v git &>/dev/null; then
+if has git; then
     ok "Git déjà installé — $(git --version)"
 else
     warn "Git introuvable, installation en cours..."
     case "$OS" in
         Darwin)
-            if command -v brew &>/dev/null; then
-                brew install git
+            if has brew; then
+                brew install git || die "Installation de git via brew échouée"
             else
-                warn "Homebrew absent — installation des Xcode Command Line Tools"
+                warn "Homebrew absent — lancement de xcode-select --install"
                 xcode-select --install 2>/dev/null || true
-                echo "  → Relancez ce script une fois git disponible."
+                printf "  → Relancez ce script une fois git installé.\n"
                 exit 0
             fi ;;
         Linux)
-            if   command -v apt-get &>/dev/null; then sudo apt-get update -qq && sudo apt-get install -y git
-            elif command -v dnf     &>/dev/null; then sudo dnf install -y git
-            elif command -v pacman  &>/dev/null; then sudo pacman -S --noconfirm git
-            elif command -v zypper  &>/dev/null; then sudo zypper install -y git
-            else err "Gestionnaire de paquets non reconnu. Installez git manuellement."; fi ;;
+            if has apt-get; then
+                sudo apt-get update -qq \
+                    && sudo apt-get install -y --no-install-recommends git curl \
+                    || die "Installation de git via apt-get échouée"
+            elif has dnf; then
+                sudo dnf install -y git curl || die "Installation de git via dnf échouée"
+            elif has pacman; then
+                sudo pacman -S --noconfirm git curl || die "Installation de git via pacman échouée"
+            elif has zypper; then
+                sudo zypper install -y git curl || die "Installation de git via zypper échouée"
+            else
+                die "Gestionnaire de paquets non reconnu. Installez git manuellement puis relancez."
+            fi ;;
         *)
-            err "Système non supporté : $OS" ;;
+            die "Système non supporté : $OS" ;;
     esac
+    has git || die "Git toujours introuvable après installation."
     ok "Git installé — $(git --version)"
 fi
 
-# ── Node.js ────────────────────────────────────────────────────────────────────
+# ── Node.js via nvm (sans sudo, installation locale) ──────────────────────────
 step "Vérification de Node.js"
-if command -v node &>/dev/null; then
+if has node; then
     ok "Node.js déjà installé — $(node --version)"
 else
-    NVM_VERSION="v0.40.3"
-
-    if command -v nvm &>/dev/null 2>&1; then
-        warn "Node.js absent, installation via nvm (LTS)..."
-    else
-        warn "nvm introuvable, installation de nvm $NVM_VERSION..."
-        curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash
+    if ! has nvm; then
+        warn "Installation de nvm ${NVM_VERSION} (sans sudo)..."
+        # Téléchargement dans un fichier temporaire pour éviter le conflit stdin
+        curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" \
+            -o /tmp/_nvm_install.sh || die "Téléchargement de nvm échoué"
+        bash /tmp/_nvm_install.sh || die "Installation de nvm échouée"
+        rm -f /tmp/_nvm_install.sh
         load_nvm
     fi
 
-    nvm install --lts
+    has nvm || die "nvm introuvable après installation. Relancez le script."
+
+    warn "Installation de Node.js LTS via nvm..."
+    nvm install --lts || die "Installation de Node.js échouée"
     nvm use --lts
     ok "Node.js installé — $(node --version)"
 fi
 
 # ── Dépôt ─────────────────────────────────────────────────────────────────────
 step "Récupération du projet"
-if [ -d "$INSTALL_DIR/.git" ]; then
+if [ -d "${INSTALL_DIR}/.git" ]; then
     warn "Dossier déjà présent, mise à jour..."
-    git -C "$INSTALL_DIR" pull --ff-only
+    git -C "${INSTALL_DIR}" pull --ff-only || warn "Mise à jour ignorée (conflits locaux ?)"
     ok "Projet mis à jour"
 else
-    git clone --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR"
-    ok "Projet cloné dans $INSTALL_DIR (branche : $REPO_BRANCH)"
+    git clone --branch "${REPO_BRANCH}" "${REPO_URL}" "${INSTALL_DIR}" \
+        || die "Clonage du dépôt échoué"
+    ok "Projet cloné dans ${INSTALL_DIR}"
 fi
 
-# ── Dépendances npm ────────────────────────────────────────────────────────────
+# ── Dépendances npm (locales, sans -g) ────────────────────────────────────────
 step "Installation des dépendances"
-cd "$INSTALL_DIR"
-load_nvm   # rechargement au cas où node vient d'être installé
-npm install --silent
+cd "${INSTALL_DIR}" || die "Impossible d'accéder à ${INSTALL_DIR}"
+load_nvm  # recharge node si fraîchement installé
+npm install --silent || die "npm install échoué"
 ok "Dépendances installées"
 
 # ── Lancement ──────────────────────────────────────────────────────────────────
-echo -e "\n${BOLD}  Tout est prêt ! Lancement...${NC}\n"
+printf "\n${BOLD}  Tout est prêt ! Lancement...${NC}\n\n"
 node index.js
