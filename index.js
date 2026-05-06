@@ -138,11 +138,11 @@ async function launchBrowser() {
         '--disable-gpu',
     ];
 
-    // Ordre de préférence : Firefox > Chromium > Chrome
+    // Ordre de préférence : Firefox > Chrome
+    // Note : 'chromium' n'a pas de version épinglée dans Puppeteer, on ne peut pas l'installer via npx
     const candidates = [
-        { name: 'firefox',  launchOpts: { browser: 'firefox', headless: true } },
-        { name: 'chromium', launchOpts: { headless: true } },
-        { name: 'chrome',   launchOpts: { headless: true } },
+        { name: 'firefox', launchOpts: { browser: 'firefox', headless: true } },
+        { name: 'chrome',  launchOpts: { headless: true } },
     ];
 
     for (const { name, launchOpts } of candidates) {
