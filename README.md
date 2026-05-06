@@ -18,6 +18,13 @@ Exporte ta liste de films vus, notés et critiqués sur AlloCiné vers un fichie
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/main/install.sh | bash
 ```
+> ⚠️ **Concernant Ubuntu Server**
+> Pour un fonctionnement minimal, installez les dépendances suivantes liées à Chrome :
+>
+> ```bash
+> sudo apt-get install -y libgtk-3-0 libatk1.0-0 libatk-bridge2.0-0 libnss3 libgbm1 libxss1 libdbus-glib-1-2 libasound2 2>/dev/null  | \
+> sudo apt-get install -y libgtk-3-0 libatk1.0-0 libatk-bridge2.0-0 libnss3 libgbm1 libxss1 libdbus-glib-1-2 libasound2t64
+> ```
 
 **Sur Windows**
 ```powershell
