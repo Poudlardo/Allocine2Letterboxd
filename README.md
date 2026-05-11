@@ -8,25 +8,23 @@ Exporte ta liste de films vus, notés et critiqués sur AlloCiné vers un fichie
 
 ## Avant 
 
-- Rends-toi sur ton profil AlloCiné → bouton **Partager** → copie le lien
-- Colle le lien dans le terminal quand il te le demande
-- Attends la fin du scraping — une barre de progression s'affiche pour chaque étape
+- Rends-toi sur [Allociné](https://mon.allocine.fr/mes-films/envie-de-voir/) → Profil → garde bien le lien en URL (similaire à https://www.allocine.fr/membre-Z20220820103049710645480/)
 
 ## Joue cette commande
 
-**Sur macOS / Linux**
+**macOS / Linux**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/main/install.sh | bash
 ```
-> ⚠️ **Concernant Ubuntu Server**
-> Pour un fonctionnement minimal, installez les dépendances suivantes liées à Chrome :
+> \[!NOTE]
+> En cas d'erreur sur Ubuntu Server, installer ces dépendances peut résoudre le problème :
 >
 > ```bash
 > sudo apt-get install -y libgtk-3-0 libatk1.0-0 libatk-bridge2.0-0 libnss3 libgbm1 libxss1 libdbus-glib-1-2 libasound2 2>/dev/null  | \
 > sudo apt-get install -y libgtk-3-0 libatk1.0-0 libatk-bridge2.0-0 libnss3 libgbm1 libxss1 libdbus-glib-1-2 libasound2t64
 > ```
 
-**Sur Windows**
+**Windows**
 ```powershell
 irm https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/main/install.ps1 | iex
 ```
