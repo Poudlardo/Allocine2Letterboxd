@@ -1,0 +1,61 @@
+name: CI – Test réel du script
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    name: Exécution réelle du script
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Dépendances système pour Puppeteer/Chromium
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libnss3 libatk1.0-0 libatk-bridge2.0-0 \
+            libcups2 libdrm2 libxkbcommon0 libxcomposite1 \
+            libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64
+
+      - name: Installer les dépendances npm
+        run: npm ci
+
+      - name: Vérification syntaxique
+        run: node --check index.js
+
+      - name: Exécuter le script avec l'URL de test
+        run: echo "$ALLOCINE_TEST_URL" | node index.js
+        env:
+          ALLOCINE_TEST_URL: ${{ secrets.ALLOCINE_TEST_URL }}
+        timeout-minutes: 5
+
+      - name: Vérifier que le CSV a bien été généré et n'est pas vide
+        run: |
+          CSV=$(find . -maxdepth 1 -name "*.csv" | head -n 1)
+
+          if [ -z "$CSV" ]; then
+            echo "❌ Aucun fichier CSV généré"
+            exit 1
+          fi
+
+          LINES=$(wc -l < "$CSV")
+          echo "📄 Fichier trouvé : $CSV ($LINES lignes)"
+
+          if [ "$LINES" -lt 2 ]; then
+            echo "❌ Le CSV est vide (header uniquement ou fichier vide)"
+            exit 1
+          fi
+
+          echo "✅ CSV valide avec $LINES lignes (dont header)"
