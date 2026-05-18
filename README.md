@@ -6,39 +6,38 @@ Exporte ta liste de films vus, notés et critiqués sur AlloCiné vers un fichie
 <img src="https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/main/csv%20converter.png" width="350" />
 </p>
 
----
+## Avant 
 
-## Installation en une commande
+- Rends-toi sur [Allociné](https://mon.allocine.fr/mes-films/envie-de-voir/) → Profil → garde bien le lien en URL (similaire à https://www.allocine.fr/membre-Z20220820103049710645480/)
 
-Copie-colle la commande correspondant à ton système. Git et Node.js sont installés automatiquement si nécessaire.
+## Joue cette commande
 
-**macOS / Linux / WSL**
+**macOS / Linux**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/main/install.sh | bash
 ```
+> \[!NOTE]
+> En cas d'erreur sur Ubuntu Server, installer ces dépendances peut résoudre le problème :
+>
+> ```bash
+> sudo apt-get install -y libgtk-3-0 libatk1.0-0 libatk-bridge2.0-0 libnss3 libgbm1 libxss1 libdbus-glib-1-2 libasound2 2>/dev/null  | \
+> sudo apt-get install -y libgtk-3-0 libatk1.0-0 libatk-bridge2.0-0 libnss3 libgbm1 libxss1 libdbus-glib-1-2 libasound2t64
+> ```
 
-**Windows PowerShell**
+**Windows**
 ```powershell
 irm https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/main/install.ps1 | iex
 ```
-
-> La première exécution télécharge un navigateur headless (~70 Mo). Les suivantes sont instantanées.
-
 ---
 
-## Utilisation
-
-1. Lance la commande d'installation ci-dessus
-2. Rends-toi sur ton profil AlloCiné → bouton **Partager** → copie le lien
-3. Colle le lien dans le terminal quand il te le demande
-4. Attends la fin du scraping — une barre de progression s'affiche pour chaque étape
-
-Une fois terminé, deux fichiers sont générés dans le dossier `Allocine2Letterboxd` :
+Une fois terminé, deux fichiers apparaissent dans le dossier `Allocine2Letterboxd` :
 
 | Fichier | Contenu | Importer sur |
 |---|---|---|
 | `allocine-films.csv` | Films vus, notes, critiques | [Letterboxd — Films vus](https://letterboxd.com/import/) |
 | `allocine-films-a-voir.csv` | Wishlist | [Letterboxd — Watchlist](https://letterboxd.com/watchlist/) |
+
+Tu peux les importer directement sur Letterboxd !
 
 ---
 
