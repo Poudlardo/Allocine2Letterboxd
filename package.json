@@ -16,7 +16,7 @@
   },
   "type": "module",
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.1.14"
   },
   "keywords": []
 }
