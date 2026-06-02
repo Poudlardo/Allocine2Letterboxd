@@ -10,6 +10,7 @@ jobs:
   test:
     name: Exécution réelle du script
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false)
 
     steps:
       - name: Checkout du code
