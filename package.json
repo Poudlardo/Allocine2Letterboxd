@@ -11,7 +11,7 @@
   "dependencies": {
     "csv-writer": "^1.6.0",
     "fast-csv": "^5.0.7",
-    "puppeteer": "^25.1.0",
+    "puppeteer": "^25.2.1",
     "readline-sync": "^1.4.10"
   },
   "type": "module",
