@@ -373,11 +373,7 @@ async function scrapeAllFilms(page, profileUrl) {
         url = finalUrl;
         pageNumber++;
 
-        if (pageNumber > 20) {
-            process.stdout.write('\n');
-            console.log(`   ⚠️ Limite de 20 pages atteinte`);
-            break;
-        }
+
     }
 
     process.stdout.write('\n');
