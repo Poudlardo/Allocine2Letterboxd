@@ -56,76 +56,45 @@ git clone --branch "$BRANCH" --depth 1 --quiet "$REPO_URL" "$TEMP_DIR" 2>&1 | gr
 cd "$TEMP_DIR/rust-version"
 echo "[OK] Repository cloned"
 
-# Install system dependencies for Rust
+# Install system dependencies for Rust (only gcc for now, rustls is pure Rust)
 echo "[*] Checking system dependencies..."
 
 # Detect OS and install required packages
 if command -v apt-get >/dev/null 2>&1; then
     # Debian/Ubuntu
-    if ! command -v pkg-config >/dev/null 2>&1; then
-        echo "[!] Installing pkg-config..."
-        sudo apt-get update -qq >/dev/null 2>&1
-        sudo apt-get install -y -qq pkg-config >/dev/null 2>&1
-    fi
-    if ! dpkg -l | grep -q libssl-dev >/dev/null 2>&1; then
-        echo "[!] Installing libssl-dev..."
-        sudo apt-get install -y -qq libssl-dev >/dev/null 2>&1
-    fi
     if ! command -v cc >/dev/null 2>&1; then
         echo "[!] Installing build tools (gcc)..."
+        sudo apt-get update -qq >/dev/null 2>&1
         sudo apt-get install -y -qq gcc >/dev/null 2>&1
+        echo "[OK] Build tools installed"
     fi
 elif command -v yum >/dev/null 2>&1; then
     # CentOS/RHEL
-    if ! command -v pkg-config >/dev/null 2>&1; then
-        echo "[!] Installing pkg-config..."
-        sudo yum install -y pkg-config >/dev/null 2>&1
-    fi
-    if ! rpm -q openssl-devel >/dev/null 2>&1; then
-        echo "[!] Installing openssl-devel..."
-        sudo yum install -y openssl-devel >/dev/null 2>&1
-    fi
     if ! command -v cc >/dev/null 2>&1; then
         echo "[!] Installing build tools (gcc)..."
         sudo yum install -y gcc >/dev/null 2>&1
+        echo "[OK] Build tools installed"
     fi
 elif command -v dnf >/dev/null 2>&1; then
     # Fedora
-    if ! command -v pkg-config >/dev/null 2>&1; then
-        echo "[!] Installing pkg-config..."
-        sudo dnf install -y pkg-config >/dev/null 2>&1
-    fi
-    if ! rpm -q openssl-devel >/dev/null 2>&1; then
-        echo "[!] Installing openssl-devel..."
-        sudo dnf install -y openssl-devel >/dev/null 2>&1
-    fi
     if ! command -v cc >/dev/null 2>&1; then
         echo "[!] Installing build tools (gcc)..."
         sudo dnf install -y gcc >/dev/null 2>&1
+        echo "[OK] Build tools installed"
     fi
 elif command -v apk >/dev/null 2>&1; then
     # Alpine
-    if ! command -v pkg-config >/dev/null 2>&1; then
-        echo "[!] Installing pkg-config..."
-        sudo apk add --no-cache pkgconfig >/dev/null 2>&1
-    fi
-    if ! apk info -e openssl-dev >/dev/null 2>&1; then
-        echo "[!] Installing openssl-dev..."
-        sudo apk add --no-cache openssl-dev >/dev/null 2>&1
-    fi
     if ! command -v cc >/dev/null 2>&1; then
         echo "[!] Installing build tools (gcc)..."
         sudo apk add --no-cache gcc musl-dev >/dev/null 2>&1
+        echo "[OK] Build tools installed"
     fi
 elif command -v brew >/dev/null 2>&1; then
     # macOS
-    if ! command -v pkg-config >/dev/null 2>&1; then
-        echo "[!] Installing pkg-config..."
-        brew install pkg-config >/dev/null 2>&1 || true
-    fi
     if ! command -v cc >/dev/null 2>&1; then
         echo "[!] Installing build tools (clang)..."
         xcode-select --install >/dev/null 2>&1 || true
+        echo "[OK] Build tools installed"
     fi
 fi
 

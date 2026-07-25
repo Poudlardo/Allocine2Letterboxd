@@ -1,10 +1,11 @@
 // Allocine2Letterboxd - Rust Version
 // High-performance scraper for Allocine profiles
+// Mirroring the JavaScript version logic exactly
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use csv::Writer;
-
+use log::info;
 use regex::Regex;
 use reqwest::Client;
 use scraper::{Html, Selector};
@@ -150,6 +151,7 @@ impl Scraper {
         let mut visited = HashSet::new();
         let mut page = 1;
         let mut total_pages = 0;
+        let mut consecutive_errors = 0;
 
         print_progress(0, 1, "Scraping films");
 
@@ -162,16 +164,21 @@ impl Scraper {
             match self.fetch_page(&current_url).await {
                 Ok(html) => {
                     let document = Html::parse_document(&html);
-                    let page_films = self.extract_films(&document);
-                    films.extend(page_films);
                     
-                    // Update total pages estimate
+                    // Estimate total pages
                     if total_pages == 0 {
                         total_pages = self.estimate_total_pages(&document);
                     }
                     
-                    print_progress(page, total_pages.max(1), "Scraping films");
+                    // Extract films from page
+                    let page_films = self.extract_films(&document);
+                    films.extend(page_films);
+                    
+                    print_progress(page, total_pages.max(1), format!("{} films", films.len()));
+                    
+                    consecutive_errors = 0;
 
+                    // Find next page
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
                         current_url = next;
@@ -182,7 +189,21 @@ impl Scraper {
                 }
                 Err(e) => {
                     eprintln!("\nError on page {}: {}", page, e);
-                    break;
+                    consecutive_errors += 1;
+                    if consecutive_errors >= 2 {
+                        eprintln!("Too many consecutive errors, stopping");
+                        break;
+                    }
+                    page += 1;
+                    // Try to construct next page URL manually
+                    if current_url.contains("?page=") {
+                        let base: Vec<&str> = current_url.split("?page=").collect();
+                        current_url = format!("{}?page={}", base[0], page);
+                    } else if current_url.ends_with("/films/") {
+                        current_url = format!("{}?page={}", current_url, page);
+                    } else {
+                        current_url = format!("{}?page={}", current_url, page);
+                    }
                 }
             }
         }
@@ -207,6 +228,8 @@ impl Scraper {
 
     fn extract_films(&self, document: &Html) -> Vec<Film> {
         let mut films = Vec::new();
+        
+        // Try primary selector
         for el in document.select(&self.selectors.film_item) {
             let title = el.select(&self.selectors.film_title)
                 .next()
@@ -231,23 +254,51 @@ impl Scraper {
                 films.push(Film { title, rating });
             }
         }
+        
+        // If no films found, try fallback selector (like JS version)
+        if films.is_empty() {
+            for el in document.select(&Selector::parse(".card").unwrap()) {
+                let title = el.select(&Selector::parse(".meta-title-link, [class*=\"title\"]").unwrap())
+                    .next()
+                    .and_then(|t| t.value().attr("title").map(|s| s.to_string()))
+                    .or_else(|| {
+                        el.select(&Selector::parse(".meta-title-link, [class*=\"title\"]").unwrap())
+                            .next()
+                            .map(|t| t.inner_html().trim().to_string())
+                    });
+                
+                let rating = el.select(&Selector::parse(".rating-mdl, [class*=\"rating\"]").unwrap())
+                    .next()
+                    .and_then(|r| r.value().attr("class"))
+                    .and_then(|c| {
+                        let re = Regex::new(r"n(\d{2})").unwrap();
+                        re.captures(c).and_then(|cap| cap.get(1)).map(|m| m.as_str())
+                    })
+                    .map(|s| format!("{}.{}", &s[0..1], &s[1..2]))
+                    .unwrap_or_default();
+
+                if let Some(title) = title {
+                    films.push(Film { title, rating });
+                }
+            }
+        }
+        
         films
     }
 
     fn find_next_page(&self, document: &Html, current_url: &str) -> Option<String> {
-        for link in document.select(&self.selectors.next_page) {
-            if let Some(href) = link.value().attr("href") {
-                return resolve_url(href, current_url);
+        // Try all three selectors like JS version
+        for selector in &[&self.selectors.next_page, &self.selectors.next_page_alt, &self.selectors.next_page_href] {
+            for link in document.select(selector) {
+                if let Some(href) = link.value().attr("href") {
+                    return resolve_url(href, current_url);
+                }
             }
         }
         
-        for link in document.select(&self.selectors.next_page_alt) {
-            if let Some(href) = link.value().attr("href") {
-                return resolve_url(href, current_url);
-            }
-        }
-        
-        for link in document.select(&self.selectors.next_page_href) {
+        // If no next page button found, try to construct URL manually
+        // Check if there are any page links
+        for link in document.select(&Selector::parse("a[href*='page=']").unwrap()) {
             if let Some(href) = link.value().attr("href") {
                 return resolve_url(href, current_url);
             }
@@ -258,19 +309,23 @@ impl Scraper {
 
     async fn scrape_reviews(&self, url: &str) -> Result<Vec<Review>> {
         let mut reviews = Vec::new();
-        let base_url = url.to_string();
-        let reviews_url = if base_url.ends_with("/films/") || base_url.ends_with("/films") {
-            base_url.replace("/films/", "/critiques/films/").replace("/films", "/critiques/films/")
-        } else if base_url.ends_with('/') {
-            format!("{}critiques/films/", base_url)
+        
+        // Construct reviews URL like JS version: replace /films/ with /critiques/films/
+        let reviews_url = if url.ends_with("/films/") {
+            url.replace("/films/", "/critiques/films/")
+        } else if url.ends_with("/films") {
+            url.replace("/films", "/critiques/films/")
+        } else if url.ends_with('/') {
+            format!("{}critiques/films/", url)
         } else {
-            format!("{}//critiques/films/", base_url)
+            format!("{}//critiques/films/", url)
         };
         
         let mut current_url = reviews_url;
         let mut visited = HashSet::new();
         let mut page = 1;
         let mut total_pages = 0;
+        let mut consecutive_errors = 0;
 
         print_progress(0, 1, "Scraping reviews");
 
@@ -283,15 +338,28 @@ impl Scraper {
             match self.fetch_page(&current_url).await {
                 Ok(html) => {
                     let document = Html::parse_document(&html);
-                    let page_reviews = self.extract_reviews(&document, &current_url).await?;
-                    reviews.extend(page_reviews);
                     
+                    // Check if there are any review blocks
+                    let review_blocks = document.select(&self.selectors.review_block).count();
+                    if review_blocks == 0 {
+                        // No reviews found, break
+                        break;
+                    }
+                    
+                    // Estimate total pages
                     if total_pages == 0 {
                         total_pages = self.estimate_total_pages(&document);
                     }
                     
-                    print_progress(page, total_pages.max(1), "Scraping reviews");
+                    // Extract reviews from page
+                    let page_reviews = self.extract_reviews(&document, &current_url).await?;
+                    reviews.extend(page_reviews);
+                    
+                    print_progress(page, total_pages.max(1), format!("{} reviews", reviews.len()));
+                    
+                    consecutive_errors = 0;
 
+                    // Find next page
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
                         current_url = next;
@@ -302,7 +370,21 @@ impl Scraper {
                 }
                 Err(e) => {
                     eprintln!("\nError fetching reviews page {}: {}", page, e);
-                    break;
+                    consecutive_errors += 1;
+                    if consecutive_errors >= 2 {
+                        eprintln!("Too many consecutive errors, stopping");
+                        break;
+                    }
+                    page += 1;
+                    // Try to construct next page URL manually
+                    if current_url.contains("?page=") {
+                        let base: Vec<&str> = current_url.split("?page=").collect();
+                        current_url = format!("{}?page={}", base[0], page);
+                    } else if current_url.ends_with("/critiques/films/") {
+                        current_url = format!("{}?page={}", current_url, page);
+                    } else {
+                        current_url = format!("{}?page={}", current_url, page);
+                    }
                 }
             }
         }
@@ -312,18 +394,23 @@ impl Scraper {
 
     async fn extract_reviews(&self, document: &Html, base_url: &str) -> Result<Vec<Review>> {
         let mut reviews = Vec::new();
+        
         for block in document.select(&self.selectors.review_block) {
+            // Extract film title from review card title
             let title = block.select(&self.selectors.review_title)
                 .next()
                 .map(|t| t.inner_html().trim().to_string())
                 .unwrap_or_default();
             
+            // Extract review text
             let text = block.select(&self.selectors.review_content)
                 .next()
                 .map(|c| c.inner_html().trim().to_string())
                 .unwrap_or_default();
 
+            // Check for "Lire plus" link
             let has_more = block.select(&self.selectors.review_lire_plus).next().is_some();
+            
             let full_text = if has_more {
                 if let Some(more_href) = block.select(&self.selectors.review_lire_plus)
                     .next()
@@ -345,8 +432,12 @@ impl Scraper {
                 text
             };
 
-            reviews.push(Review { title, review: full_text });
+            // Clean up the text like JS version
+            let cleaned_text = full_text.replace('\n', " ").replace('\r', " ").replace("  ", " ").trim().to_string();
+
+            reviews.push(Review { title, review: cleaned_text });
         }
+        
         Ok(reviews)
     }
 
@@ -370,13 +461,14 @@ impl Scraper {
             match self.fetch_page(&current_url).await {
                 Ok(html) => {
                     let document = Html::parse_document(&html);
-                    items.extend(self.extract_wishlist(&document));
                     
                     if total_pages == 0 {
                         total_pages = self.estimate_total_pages(&document);
                     }
                     
-                    print_progress(page, total_pages.max(1), "Scraping wishlist");
+                    items.extend(self.extract_wishlist(&document));
+                    
+                    print_progress(page, total_pages.max(1), format!("{} items", items.len()));
 
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
