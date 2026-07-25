@@ -5,7 +5,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use csv::Writer;
-use log::info;
 use regex::Regex;
 use reqwest::Client;
 use scraper::{Html, Selector};
@@ -174,9 +173,7 @@ impl Scraper {
                     let page_films = self.extract_films(&document);
                     films.extend(page_films);
                     
-                    print_progress(page, total_pages.max(1), format!("{} films", films.len()));
-                    
-                    consecutive_errors = 0;
+                    print_progress(page, total_pages.max(1), &format!("{} films", films.len()));
 
                     // Find next page
                     let next_url = self.find_next_page(&document, &current_url);
@@ -355,10 +352,8 @@ impl Scraper {
                     let page_reviews = self.extract_reviews(&document, &current_url).await?;
                     reviews.extend(page_reviews);
                     
-                    print_progress(page, total_pages.max(1), format!("{} reviews", reviews.len()));
-                    
+                    print_progress(page, total_pages.max(1), &format!("{} reviews", reviews.len()));
                     consecutive_errors = 0;
-
                     // Find next page
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
@@ -468,11 +463,9 @@ impl Scraper {
                     
                     items.extend(self.extract_wishlist(&document));
                     
-                    print_progress(page, total_pages.max(1), format!("{} items", items.len()));
-
+                    print_progress(page, total_pages.max(1), &format!("{} items", items.len()));
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
-                        current_url = next;
                         page += 1;
                     } else {
                         break;
