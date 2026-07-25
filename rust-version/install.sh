@@ -14,6 +14,9 @@ CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
+# Simple arrow character (works in all terminals)
+ARROW='->'
+
 # Check if running as one-liner (piped from curl)
 if [ -t 0 ]; then
     # Running interactively
@@ -26,74 +29,51 @@ fi
 # Print header
 print_header() {
     echo -e "${BLUE}"
-    echo "  █████╗ ██╗      ██████╗ ██╗     ███████╗███████╗"
-    echo " ██╔══██╗██║     ██╔═══██╗██║     ██╔════╝██╔════╝"
-    echo " ███████║██║     ██║   ██║██║     █████╗  ███████╗"
-    echo " ██╔══██║██║     ██║   ██║██║     ██╔══╝  ╚════██║"
-    echo " ██║  ██║███████╗╚██████╔╝███████╗███████╗███████║"
-    echo " ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚══════╝╚══════╝╚══════╝"
+    echo "  A2L"
     echo -e "${NC}"
     echo -e "${CYAN}        Allocine2Letterboxd - Rust Version${NC}"
     echo -e "${YELLOW}  High-performance scraper for Allocine profiles${NC}"
     echo ""
 }
 
-# Progress bar function
-progress_bar() {
-    local current=$1
-    local total=$2
-    local message=$3
-    local width=30
-    
-    if [ $total -eq 0 ]; then
-        total=1
-    fi
-    
-    local percent=$((current * 100 / total))
-    local filled=$((current * width / total))
-    local empty=$((width - filled))
-    
-    local bar=""
-    for ((i=0; i<filled; i++)); do
-        bar+="█"
-    done
-    for ((i=0; i<empty; i++)); do
-        bar+="░"
-    done
-    
-    printf "\r${CYAN}[%s]${NC} %3d%% (%d/%d) %s" "$bar" "$percent" "$current" "$total" "$message"
-}
-
-# Clear progress line
-clear_progress() {
+# Clear current line
+clear_line() {
     printf "\r\033[K"
 }
 
-# Print step with spinner
+# Print step
 print_step() {
     local message=$1
+    clear_line
     echo -ne "${BLUE}[*]${NC} ${message}..."
 }
 
 # Print success
 print_success() {
     local message=$1
-    clear_progress
+    clear_line
     echo -e "${GREEN}[✓]${NC} ${message}"
 }
 
 # Print warning
 print_warning() {
     local message=$1
-    clear_progress
+    clear_line
     echo -e "${YELLOW}[!]${NC} ${message}"
 }
 
 # Print error
 print_error() {
     local message=$1
-    clear_progress
+    clear_line
     echo -e "${RED}[✗]${NC} ${message}"
+}
+
+# Print info
+print_info() {
+    local message=$1
+    clear_line
+    echo -e "  ${CYAN}${ARROW}${NC} ${message}"
 }
 
 # Check if command exists
@@ -109,40 +89,29 @@ main() {
     # Step 1: Check and install Rust
     print_step "Checking Rust installation"
     if ! command_exists cargo; then
-        clear_progress
-        echo -e "${YELLOW}[!]${NC} Rust not found. Installing Rust..."
+        clear_line
+        print_warning "Rust not found. Installing Rust..."
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
         source "$HOME/.cargo/env"
         print_success "Rust installed successfully"
     else
-        clear_progress
+        clear_line
         print_success "Rust is already installed"
     fi
     
     # Verify Rust version
     RUST_VERSION=$(rustc --version | awk '{print $2}')
-    echo -e "  ${CYAN}→${NC} Rust version: $RUST_VERSION"
+    print_info "Rust version: $RUST_VERSION"
     
     # Step 2: Build the project
-    print_step "Building Allocine2Letterboxd"
+    print_step "Building A2L"
     
-    # Build with quiet output, show our own progress
-    BUILD_OUTPUT=$(cargo build --release 2>&1)
-    
-    # Count compilation steps
-    COMPILING_COUNT=$(echo "$BUILD_OUTPUT" | grep -c "Compiling" || echo "0")
-    FINISHED=$(echo "$BUILD_OUTPUT" | grep -c "Finished" || echo "0")
-    
-    if [ $COMPILING_COUNT -gt 0 ]; then
-        clear_progress
-        echo -e "  ${CYAN}→${NC} Compiled $COMPILING_COUNT packages"
-    fi
-    
-    if [ $FINISHED -gt 0 ]; then
+    # Build the project
+    if cargo build --release 2>&1; then
+        clear_line
         print_success "Build successful"
     else
-        # If build failed, show error
-        echo "$BUILD_OUTPUT"
+        clear_line
         print_error "Build failed"
         exit 1
     fi
@@ -161,8 +130,8 @@ main() {
         fi
     fi
     
-    # Validate URL
-    if [[ ! $ALLOCINE_URL =~ ^https://www\.allocine\.fr/membre-[A-Z0-9]+ ]]; then
+    # Validate URL - more permissive pattern
+    if [[ ! $ALLOCINE_URL =~ ^https://www\.allocine\.fr/membre-[A-Z0-9] ]]; then
         print_error "Invalid Allocine URL!"
         print_warning "Please provide a valid URL like: https://www.allocine.fr/membre-Z20060328181626557554912/films/"
         exit 1
@@ -174,16 +143,14 @@ main() {
     
     # Step 4: Run the scraper
     # The Rust binary will show its own progress bar
-    ./target/release/allocine2letterboxd "$ALLOCINE_URL"
-    
-    SCRAPE_EXIT_CODE=$?
-    
-    if [ $SCRAPE_EXIT_CODE -ne 0 ]; then
+    if ./target/release/allocine2letterboxd "$ALLOCINE_URL"; then
+        echo ""
+    else
+        SCRAPE_EXIT_CODE=$?
+        clear_line
         print_error "Scraping failed with exit code $SCRAPE_EXIT_CODE"
         exit $SCRAPE_EXIT_CODE
     fi
-    
-    echo ""
     
     # Step 5: Show results
     print_success "All done!"
@@ -203,8 +170,8 @@ main() {
     echo ""
     echo -e "${CYAN}Next steps:${NC}"
     echo "  Import to Letterboxd:"
-    echo "    - allocine-films.csv → https://letterboxd.com/import/"
-    echo "    - allocine-films-a-voir.csv → https://letterboxd.com/watchlist/"
+    echo "    - allocine-films.csv ${ARROW} https://letterboxd.com/import/"
+    echo "    - allocine-films-a-voir.csv ${ARROW} https://letterboxd.com/watchlist/"
     echo ""
 }
 

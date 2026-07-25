@@ -1,4 +1,4 @@
-// Allocine2Letterboxd - Rust Version
+// A2L - Rust Version
 // High-performance scraper for Allocine profiles
 
 use anyhow::{Context, Result};
@@ -496,8 +496,8 @@ async fn main() -> Result<()> {
         env_logger::Builder::from_default_env().format_timestamp(None).init();
     }
 
-    println!("Allocine2Letterboxd - Rust Version");
-    println!("===================================");
+    println!("A2L - Rust Version");
+    println!("===================");
     println!("");
 
     if !args.output.exists() {
