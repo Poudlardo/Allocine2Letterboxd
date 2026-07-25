@@ -24,22 +24,16 @@ echo "  High-performance scraper for Allocine profiles"
 echo ""
 
 # Ask for URL - this is the critical part
-# When piped (curl | bash), stdin is occupied, so we need to read from terminal
-# Solution: temporarily redirect stdin from /dev/tty if available, else use stdin
 if [ -t 0 ]; then
-    # Running interactively, read from stdin (which is terminal)
     echo -n "  Enter your Allocine profile URL: "
     read -r ALLOCINE_URL
 else
-    # Running via pipe (curl | bash), stdin is not a terminal
-    # Try to read from /dev/tty if available
     if [ -e /dev/tty ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
         echo -n "  Enter your Allocine profile URL: " > /dev/tty
         exec 3</dev/tty
         read -u 3 -r ALLOCINE_URL
         exec 3>&-
     else
-        # Fallback: just prompt and hope for the best
         echo -n "  Enter your Allocine profile URL: "
         read -r ALLOCINE_URL
     fi
@@ -62,7 +56,47 @@ git clone --branch "$BRANCH" --depth 1 --quiet "$REPO_URL" "$TEMP_DIR" 2>&1 | gr
 cd "$TEMP_DIR/rust-version"
 echo "[OK] Repository cloned"
 
-# Install Rust if needed
+# Install system dependencies for Rust
+echo "[*] Checking system dependencies..."
+if command -v apt-get >/dev/null 2>&1; then
+    # Debian/Ubuntu
+    if ! command -v cc >/dev/null 2>&1; then
+        echo "[!] Installing build tools (gcc)..."
+        sudo apt-get update -qq >/dev/null 2>&1
+        sudo apt-get install -y -qq gcc >/dev/null 2>&1
+        echo "[OK] Build tools installed"
+    fi
+elif command -v yum >/dev/null 2>&1; then
+    # CentOS/RHEL
+    if ! command -v cc >/dev/null 2>&1; then
+        echo "[!] Installing build tools (gcc)..."
+        sudo yum install -y gcc >/dev/null 2>&1
+        echo "[OK] Build tools installed"
+    fi
+elif command -v dnf >/dev/null 2>&1; then
+    # Fedora
+    if ! command -v cc >/dev/null 2>&1; then
+        echo "[!] Installing build tools (gcc)..."
+        sudo dnf install -y gcc >/dev/null 2>&1
+        echo "[OK] Build tools installed"
+    fi
+elif command -v apk >/dev/null 2>&1; then
+    # Alpine
+    if ! command -v cc >/dev/null 2>&1; then
+        echo "[!] Installing build tools (gcc)..."
+        sudo apk add --no-cache gcc musl-dev >/dev/null 2>&1
+        echo "[OK] Build tools installed"
+    fi
+elif command -v brew >/dev/null 2>&1; then
+    # macOS
+    if ! command -v cc >/dev/null 2>&1; then
+        echo "[!] Installing build tools (clang)..."
+        brew install gcc >/dev/null 2>&1 || true
+        echo "[OK] Build tools installed"
+    fi
+fi
+
+# Check and install Rust
 echo "[*] Checking Rust..."
 if ! command -v cargo >/dev/null 2>&1; then
     echo "[!] Rust not found. Installing..."
