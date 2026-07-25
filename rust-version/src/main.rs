@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use csv::Writer;
-use log::info;
+
 use regex::Regex;
 use reqwest::Client;
 use scraper::{Html, Selector};
