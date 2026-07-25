@@ -1,10 +1,9 @@
-// A2L - Rust Version
+// Allocine2Letterboxd - Rust Version
 // High-performance scraper for Allocine profiles
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use csv::Writer;
-use indicatif::{ProgressBar, ProgressStyle};
 use log::info;
 use regex::Regex;
 use reqwest::Client;
@@ -12,10 +11,9 @@ use scraper::{Html, Selector};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
+use std::io::{self, Write};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
 use url::Url;
 
 #[derive(Parser, Debug)]
@@ -69,6 +67,22 @@ fn normalize_url(url: &str) -> String {
         return format!("{}/", url);
     }
     url.to_string()
+}
+
+/// Simple progress indicator
+fn print_progress(current: usize, total: usize, message: &str) {
+    let percent = if total > 0 { (current * 100) / total } else { 0 };
+    let bar_width = 30;
+    let filled = (current * bar_width) / total;
+    let bar: String = (0..bar_width)
+        .map(|i| if i < filled { '=' } else { ' ' })
+        .collect();
+    print!("\r[{}] {}% ({}/{}) {}", bar, percent, current, total, message);
+    io::stdout().flush().unwrap();
+}
+
+fn clear_progress() {
+    println!();
 }
 
 struct Selectors {
@@ -130,11 +144,14 @@ impl Scraper {
         response.text().await.map_err(Into::into)
     }
 
-    async fn scrape_films(&self, url: &str, pb: &ProgressBar, progress: &Arc<Mutex<ScrapeProgress>>) -> Result<Vec<Film>> {
+    async fn scrape_films(&self, url: &str) -> Result<Vec<Film>> {
         let mut films = Vec::new();
         let mut current_url = normalize_url(url);
         let mut visited = HashSet::new();
         let mut page = 1;
+        let mut total_pages = 0;
+
+        print_progress(0, 1, "Scraping films");
 
         loop {
             if visited.contains(&current_url) || page > 100 {
@@ -148,13 +165,12 @@ impl Scraper {
                     let page_films = self.extract_films(&document);
                     films.extend(page_films);
                     
-                    // Update progress
-                    {
-                        let mut p = progress.lock().await;
-                        p.films_scraped = films.len();
-                        p.current_page = page;
-                        p.update_progress_bar(pb);
+                    // Update total pages estimate
+                    if total_pages == 0 {
+                        total_pages = self.estimate_total_pages(&document);
                     }
+                    
+                    print_progress(page, total_pages.max(1), "Scraping films");
 
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
@@ -165,12 +181,28 @@ impl Scraper {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error on page {}: {}", page, e);
+                    eprintln!("\nError on page {}: {}", page, e);
                     break;
                 }
             }
         }
+        clear_progress();
         Ok(films)
+    }
+
+    fn estimate_total_pages(&self, document: &Html) -> usize {
+        let mut max_page = 0;
+        for link in document.select(&Selector::parse("a[href*='page=']").unwrap()) {
+            if let Some(href) = link.value().attr("href") {
+                if let Some(pos) = href.find("page=") {
+                    let page_str = &href[pos + 6..];
+                    if let Ok(page_num) = page_str.parse::<usize>() {
+                        max_page = max_page.max(page_num);
+                    }
+                }
+            }
+        }
+        max_page.max(1)
     }
 
     fn extract_films(&self, document: &Html) -> Vec<Film> {
@@ -224,7 +256,7 @@ impl Scraper {
         None
     }
 
-    async fn scrape_reviews(&self, url: &str, pb: &ProgressBar, progress: &Arc<Mutex<ScrapeProgress>>) -> Result<Vec<Review>> {
+    async fn scrape_reviews(&self, url: &str) -> Result<Vec<Review>> {
         let mut reviews = Vec::new();
         let base_url = url.to_string();
         let reviews_url = if base_url.ends_with("/films/") || base_url.ends_with("/films") {
@@ -238,6 +270,9 @@ impl Scraper {
         let mut current_url = reviews_url;
         let mut visited = HashSet::new();
         let mut page = 1;
+        let mut total_pages = 0;
+
+        print_progress(0, 1, "Scraping reviews");
 
         loop {
             if visited.contains(&current_url) || page > 100 {
@@ -251,13 +286,11 @@ impl Scraper {
                     let page_reviews = self.extract_reviews(&document, &current_url).await?;
                     reviews.extend(page_reviews);
                     
-                    // Update progress
-                    {
-                        let mut p = progress.lock().await;
-                        p.reviews_scraped = reviews.len();
-                        p.current_page = page;
-                        p.update_progress_bar(pb);
+                    if total_pages == 0 {
+                        total_pages = self.estimate_total_pages(&document);
                     }
+                    
+                    print_progress(page, total_pages.max(1), "Scraping reviews");
 
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
@@ -268,11 +301,12 @@ impl Scraper {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error fetching reviews page {}: {}", page, e);
+                    eprintln!("\nError fetching reviews page {}: {}", page, e);
                     break;
                 }
             }
         }
+        clear_progress();
         Ok(reviews)
     }
 
@@ -316,13 +350,16 @@ impl Scraper {
         Ok(reviews)
     }
 
-    async fn scrape_wishlist(&self, url: &str, pb: &ProgressBar, progress: &Arc<Mutex<ScrapeProgress>>) -> Result<Vec<WishlistItem>> {
+    async fn scrape_wishlist(&self, url: &str) -> Result<Vec<WishlistItem>> {
         let mut items = Vec::new();
         let base_url = normalize_url(url);
         let wishlist_url = base_url.replace("/films/", "/films/envie-de-voir/");
         let mut current_url = wishlist_url;
         let mut visited = HashSet::new();
         let mut page = 1;
+        let mut total_pages = 0;
+
+        print_progress(0, 1, "Scraping wishlist");
 
         loop {
             if visited.contains(&current_url) || page > 100 {
@@ -335,13 +372,11 @@ impl Scraper {
                     let document = Html::parse_document(&html);
                     items.extend(self.extract_wishlist(&document));
                     
-                    // Update progress
-                    {
-                        let mut p = progress.lock().await;
-                        p.wishlist_scraped = items.len();
-                        p.current_page = page;
-                        p.update_progress_bar(pb);
+                    if total_pages == 0 {
+                        total_pages = self.estimate_total_pages(&document);
                     }
+                    
+                    print_progress(page, total_pages.max(1), "Scraping wishlist");
 
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
@@ -352,11 +387,12 @@ impl Scraper {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error fetching wishlist page {}: {}", page, e);
+                    eprintln!("\nError fetching wishlist page {}: {}", page, e);
                     break;
                 }
             }
         }
+        clear_progress();
         Ok(items)
     }
 
@@ -432,60 +468,6 @@ struct ExportEntry {
     review: String,
 }
 
-/// Progress tracking struct for unified progress bar
-struct ScrapeProgress {
-    total_steps: usize,
-    current_step: usize,
-    current_page: usize,
-    total_pages: usize,
-    films_scraped: usize,
-    reviews_scraped: usize,
-    wishlist_scraped: usize,
-    step_names: Vec<String>,
-}
-
-impl ScrapeProgress {
-    fn new() -> Self {
-        Self {
-            total_steps: 3,
-            current_step: 0,
-            current_page: 0,
-            total_pages: 0,
-            films_scraped: 0,
-            reviews_scraped: 0,
-            wishlist_scraped: 0,
-            step_names: vec![
-                "Scraping films".to_string(),
-                "Scraping reviews".to_string(),
-                "Scraping wishlist".to_string(),
-            ],
-        }
-    }
-
-    fn update_progress_bar(&self, pb: &ProgressBar) {
-        let step_progress = self.current_step as f64 / self.total_steps as f64;
-        let page_progress = if self.total_pages > 0 {
-            self.current_page as f64 / self.total_pages as f64
-        } else {
-            0.0
-        };
-        
-        // Combine step and page progress
-        let overall_progress = (step_progress + page_progress / self.total_steps as f64) / 2.0;
-        let progress = (overall_progress * 100.0) as u64;
-        
-        let message = match self.current_step {
-            0 => format!("Films: {} | Pages: {}", self.films_scraped, self.current_page),
-            1 => format!("Reviews: {} | Pages: {}", self.reviews_scraped, self.current_page),
-            2 => format!("Wishlist: {} | Pages: {}", self.wishlist_scraped, self.current_page),
-            _ => format!("Step {}/{}", self.current_step, self.total_steps),
-        };
-        
-        pb.set_position(progress);
-        pb.set_message(format!("{} | {}", self.step_names[self.current_step], message));
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::Builder::from_default_env().format_timestamp(None).init();
@@ -506,66 +488,30 @@ async fn main() -> Result<()> {
 
     let scraper = Scraper::new()?;
 
-    // Create unified progress bar
-    let pb = ProgressBar::new(100);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}% ({msg})")
-            .unwrap()
-            .progress_chars("#>-")
-    );
-    pb.enable_steady_tick(Duration::from_millis(100));
+    // Scrape films
+    println!("Scraping films...");
+    let films = scraper.scrape_films(&args.url).await?;
+    println!("Scraped {} films", films.len());
 
-    let progress = Arc::new(Mutex::new(ScrapeProgress::new()));
-
-    // Step 1: Scrape films
-    {
-        let mut p = progress.lock().await;
-        p.current_step = 0;
-        p.update_progress_bar(&pb);
-    }
-    
-    info!("Scraping films...");
-    let films = scraper.scrape_films(&args.url, &pb, &progress).await?;
-
-    // Step 2: Scrape reviews
-    {
-        let mut p = progress.lock().await;
-        p.current_step = 1;
-        p.update_progress_bar(&pb);
-    }
-    
+    // Scrape reviews
     let reviews = if args.skip_reviews {
-        info!("Skipping reviews");
+        println!("Skipping reviews");
         Vec::new()
     } else {
-        info!("Scraping reviews...");
-        scraper.scrape_reviews(&args.url, &pb, &progress).await?
+        println!("Scraping reviews...");
+        scraper.scrape_reviews(&args.url).await?
     };
+    println!("Scraped {} reviews", reviews.len());
 
-    // Step 3: Scrape wishlist
-    {
-        let mut p = progress.lock().await;
-        p.current_step = 2;
-        p.update_progress_bar(&pb);
-    }
-    
+    // Scrape wishlist
     let wishlist = if args.skip_wishlist {
-        info!("Skipping wishlist");
+        println!("Skipping wishlist");
         Vec::new()
     } else {
-        info!("Scraping wishlist...");
-        scraper.scrape_wishlist(&args.url, &pb, &progress).await?
+        println!("Scraping wishlist...");
+        scraper.scrape_wishlist(&args.url).await?
     };
-
-    // Final update
-    {
-        let mut p = progress.lock().await;
-        p.current_step = p.total_steps;
-        p.update_progress_bar(&pb);
-    }
-
-    pb.finish_with_message("Scraping complete!");
+    println!("Scraped {} wishlist items", wishlist.len());
 
     // Export films
     if !films.is_empty() {
@@ -582,8 +528,7 @@ async fn main() -> Result<()> {
             writer.serialize(entry)?;
         }
         writer.flush()?;
-        info!("Exported {} films to {}", entries.len(), path.display());
-        println!("✓ Exported {} films to {}", entries.len(), path.display());
+        println!("Exported {} films to {}", entries.len(), path.display());
     }
 
     // Export wishlist
@@ -595,8 +540,7 @@ async fn main() -> Result<()> {
             writer.serialize(item)?;
         }
         writer.flush()?;
-        info!("Exported {} wishlist items to {}", wishlist.len(), path.display());
-        println!("✓ Exported {} wishlist items to {}", wishlist.len(), path.display());
+        println!("Exported {} wishlist items to {}", wishlist.len(), path.display());
     }
 
     println!("");
