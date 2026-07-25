@@ -78,6 +78,8 @@ struct Selectors {
     review_lire_plus: Selector,
     review_title: Selector,
     next_page: Selector,
+    next_page_alt: Selector,
+    next_page_href: Selector,
 }
 
 impl Selectors {
@@ -90,7 +92,9 @@ impl Selectors {
             review_content: Selector::parse(".content-txt.review-card-content").unwrap(),
             review_lire_plus: Selector::parse(".blue-link.link-more").unwrap(),
             review_title: Selector::parse(".review-card-title a.xXx").unwrap(),
-            next_page: Selector::parse(".button.button-md.button-primary-full.button-right, button[title=\"Page suivante\"], a[href*='page=']").unwrap(),
+            next_page: Selector::parse(".button.button-md.button-primary-full.button-right").unwrap(),
+            next_page_alt: Selector::parse("button[title=\"Page suivante\"]").unwrap(),
+            next_page_href: Selector::parse("a[href*='?page=']").unwrap(),
         }
     }
 }
@@ -131,7 +135,7 @@ impl Scraper {
         let mut page = 1;
 
         loop {
-            if visited.contains(&current_url) || page > 50 {
+            if visited.contains(&current_url) || page > 100 {
                 break;
             }
             visited.insert(current_url.clone());
@@ -139,11 +143,14 @@ impl Scraper {
             match self.fetch_page(&current_url).await {
                 Ok(html) => {
                     let document = Html::parse_document(&html);
-                    films.extend(self.extract_films(&document));
+                    let page_films = self.extract_films(&document);
+                    films.extend(page_films);
                     pb.set_message(format!("{} films", films.len()));
                     pb.inc(1);
 
-                    if let Some(next) = self.find_next_page(&document, &current_url) {
+                    // Try all three next page selectors
+                    let next_url = self.find_next_page(&document, &current_url);
+                    if let Some(next) = next_url {
                         current_url = next;
                         page += 1;
                     } else {
@@ -189,30 +196,47 @@ impl Scraper {
     }
 
     fn find_next_page(&self, document: &Html, current_url: &str) -> Option<String> {
+        // Try primary next page button
         for link in document.select(&self.selectors.next_page) {
             if let Some(href) = link.value().attr("href") {
-                if href.starts_with("http") {
-                    return Some(href.to_string());
-                }
-                if let Ok(base) = Url::parse(current_url) {
-                    if let Ok(resolved) = base.join(href) {
-                        return Some(resolved.to_string());
-                    }
-                }
+                return resolve_url(href, current_url);
             }
         }
+        
+        // Try alternative next page button
+        for link in document.select(&self.selectors.next_page_alt) {
+            if let Some(href) = link.value().attr("href") {
+                return resolve_url(href, current_url);
+            }
+        }
+        
+        // Try pagination links with ?page= parameter
+        for link in document.select(&self.selectors.next_page_href) {
+            if let Some(href) = link.value().attr("href") {
+                return resolve_url(href, current_url);
+            }
+        }
+        
         None
     }
 
     async fn scrape_reviews(&self, url: &str, pb: &ProgressBar) -> Result<Vec<Review>> {
         let mut reviews = Vec::new();
-        let reviews_url = url.replace("/films/", "/critiques/films/");
+        let base_url = url.to_string();
+        let reviews_url = if base_url.ends_with("/films/") || base_url.ends_with("/films") {
+            base_url.replace("/films/", "/critiques/films/").replace("/films", "/critiques/films/")
+        } else if base_url.ends_with('/') {
+            format!("{}critiques/films/", base_url)
+        } else {
+            format!("{}//critiques/films/", base_url)
+        };
+        
         let mut current_url = reviews_url;
         let mut visited = HashSet::new();
         let mut page = 1;
 
         loop {
-            if visited.contains(&current_url) || page > 50 {
+            if visited.contains(&current_url) || page > 100 {
                 break;
             }
             visited.insert(current_url.clone());
@@ -220,11 +244,14 @@ impl Scraper {
             match self.fetch_page(&current_url).await {
                 Ok(html) => {
                     let document = Html::parse_document(&html);
-                    reviews.extend(self.extract_reviews(&document, &current_url).await?);
+                    let page_reviews = self.extract_reviews(&document, &current_url).await?;
+                    reviews.extend(page_reviews);
                     pb.set_message(format!("{} reviews", reviews.len()));
                     pb.inc(1);
 
-                    if let Some(next) = self.find_next_page(&document, &current_url) {
+                    // Try all three next page selectors for reviews
+                    let next_url = self.find_next_page(&document, &current_url);
+                    if let Some(next) = next_url {
                         current_url = next;
                         page += 1;
                     } else {
@@ -282,13 +309,14 @@ impl Scraper {
 
     async fn scrape_wishlist(&self, url: &str, pb: &ProgressBar) -> Result<Vec<WishlistItem>> {
         let mut items = Vec::new();
-        let wishlist_url = url.replace("/films/", "/films/envie-de-voir/");
+        let base_url = normalize_url(url);
+        let wishlist_url = base_url.replace("/films/", "/films/envie-de-voir/");
         let mut current_url = wishlist_url;
         let mut visited = HashSet::new();
         let mut page = 1;
 
         loop {
-            if visited.contains(&current_url) || page > 50 {
+            if visited.contains(&current_url) || page > 100 {
                 break;
             }
             visited.insert(current_url.clone());
@@ -300,7 +328,9 @@ impl Scraper {
                     pb.set_message(format!("{} items", items.len()));
                     pb.inc(1);
 
-                    if let Some(next) = self.find_next_page(&document, &current_url) {
+                    // Try all three next page selectors for wishlist
+                    let next_url = self.find_next_page(&document, &current_url);
+                    if let Some(next) = next_url {
                         current_url = next;
                         page += 1;
                     } else {
