@@ -43,7 +43,7 @@ struct Args {
 }
 
 fn validate_allocine_url(url: &str) -> Result<String> {
-    let re = Regex::new(r"^https://www\.allocine\.fr/membre-[A-Z0-9]+/?$").unwrap();
+    let re = Regex::new(r"^https://www\.allocine\.fr/membre-[A-Z0-9]+(/films/?)?$").unwrap();
     if re.is_match(url) {
         Ok(url.to_string())
     } else {
