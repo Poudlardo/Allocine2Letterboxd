@@ -21,6 +21,10 @@ REPO_URL="https://github.com/Poudlardo/Allocine2Letterboxd.git"
 BRANCH="vibe/rust-version-a5b8bf"
 TEMP_DIR=""
 
+# Always read from terminal for user input, not stdin
+# This is critical when script is piped via curl | bash
+exec 3<>/dev/tty
+
 # Check if running as one-liner (piped from curl)
 if [ -t 0 ]; then
     INTERACTIVE=1
@@ -33,58 +37,59 @@ cleanup() {
     if [ -n "$TEMP_DIR" ] && [ -d "$TEMP_DIR" ]; then
         rm -rf "$TEMP_DIR"
     fi
+    exec 3>&-
 }
 
 trap cleanup EXIT
 
 # Clear current line
 clear_line() {
-    printf "\r\033[K"
+    printf "\r\033[K" >&3
 }
 
 # Print header
 print_header() {
-    echo -e "${BLUE}"
-    echo "  A2L"
-    echo -e "${NC}"
-    echo -e "${CYAN}        Allocine2Letterboxd - Rust Version${NC}"
-    echo -e "${YELLOW}  High-performance scraper for Allocine profiles${NC}"
-    echo ""
+    echo -e "${BLUE}" >&3
+    echo "  A2L" >&3
+    echo -e "${NC}" >&3
+    echo -e "${CYAN}        Allocine2Letterboxd - Rust Version${NC}" >&3
+    echo -e "${YELLOW}  High-performance scraper for Allocine profiles${NC}" >&3
+    echo "" >&3
 }
 
 # Print step
 print_step() {
     local message=$1
     clear_line
-    echo -ne "${BLUE}[*]${NC} ${message}..."
+    echo -ne "${BLUE}[*]${NC} ${message}..." >&3
 }
 
 # Print success
 print_success() {
     local message=$1
     clear_line
-    echo -e "${GREEN}[✓]${NC} ${message}"
+    echo -e "${GREEN}[✓]${NC} ${message}" >&3
 }
 
 # Print warning
 print_warning() {
     local message=$1
     clear_line
-    echo -e "${YELLOW}[!]${NC} ${message}"
+    echo -e "${YELLOW}[!]${NC} ${message}" >&3
 }
 
 # Print error
 print_error() {
     local message=$1
     clear_line
-    echo -e "${RED}[✗]${NC} ${message}"
+    echo -e "${RED}[✗]${NC} ${message}" >&3
 }
 
 # Print info
 print_info() {
     local message=$1
     clear_line
-    echo -e "  ${CYAN}${ARROW}${NC} ${message}"
+    echo -e "  ${CYAN}${ARROW}${NC} ${message}" >&3
 }
 
 # Check if command exists
@@ -98,15 +103,9 @@ main() {
     print_header
     
     # Step 0: Ask for Allocine URL FIRST (before any installation)
-    if [ $INTERACTIVE -eq 1 ]; then
-        read -p "  Enter your Allocine profile URL: " ALLOCINE_URL
-    else
-        if [ $# -gt 0 ]; then
-            ALLOCINE_URL=$1
-        else
-            read -p "  Enter your Allocine profile URL: " ALLOCINE_URL
-        fi
-    fi
+    # Read from /dev/tty (file descriptor 3) to avoid conflict with stdin when piped
+    echo -n "  Enter your Allocine profile URL: " >&3
+    read -u 3 ALLOCINE_URL
     
     # Validate URL - more permissive pattern
     if [[ ! $ALLOCINE_URL =~ ^https://www\.allocine\.fr/membre-[A-Z0-9] ]]; then
@@ -115,7 +114,7 @@ main() {
         exit 1
     fi
     
-    echo ""
+    echo "" >&3
     
     # Step 1: Clone the repository to a temp directory
     print_step "Setting up environment"
@@ -173,13 +172,13 @@ main() {
         exit 1
     fi
     
-    echo ""
+    echo "" >&3
     print_step "Starting scrape"
-    echo ""
+    echo "" >&3
     
     # Step 4: Run the scraper
     if ./target/release/allocine2letterboxd "$ALLOCINE_URL"; then
-        echo ""
+        echo "" >&3
     else
         SCRAPE_EXIT_CODE=$?
         clear_line
@@ -188,43 +187,42 @@ main() {
     fi
     
     # Step 5: Copy CSV files to current directory before cleanup
+    ORIGINAL_DIR=$(pwd -P)
     if [ -f "allocine-films.csv" ]; then
-        cp allocine-films.csv "$OLDPWD/" 2>/dev/null || cp allocine-films.csv .
+        cp allocine-films.csv "$ORIGINAL_DIR/" 2>/dev/null || true
     fi
     
     if [ -f "allocine-films-a-voir.csv" ]; then
-        cp allocine-films-a-voir.csv "$OLDPWD/" 2>/dev/null || cp allocine-films-a-voir.csv .
+        cp allocine-films-a-voir.csv "$ORIGINAL_DIR/" 2>/dev/null || true
     fi
     
     # Step 6: Show results
     print_success "All done!"
-    echo ""
+    echo "" >&3
     
     # Check if CSV files were created
-    if [ -f "allocine-films.csv" ] || [ -f "$OLDPWD/allocine-films.csv" ]; then
-        CSV_PATH="allocine-films.csv"
-        if [ ! -f "$CSV_PATH" ] && [ -f "$OLDPWD/allocine-films.csv" ]; then
-            CSV_PATH="$OLDPWD/allocine-films.csv"
-        fi
-        FILM_COUNT=$(tail -n +2 "$CSV_PATH" | wc -l)
-        print_success "Exported $FILM_COUNT films to $CSV_PATH"
+    if [ -f "$ORIGINAL_DIR/allocine-films.csv" ]; then
+        FILM_COUNT=$(tail -n +2 "$ORIGINAL_DIR/allocine-films.csv" | wc -l)
+        print_success "Exported $FILM_COUNT films to $ORIGINAL_DIR/allocine-films.csv"
+    elif [ -f "allocine-films.csv" ]; then
+        FILM_COUNT=$(tail -n +2 allocine-films.csv | wc -l)
+        print_success "Exported $FILM_COUNT films to allocine-films.csv"
     fi
     
-    if [ -f "allocine-films-a-voir.csv" ] || [ -f "$OLDPWD/allocine-films-a-voir.csv" ]; then
-        WISH_PATH="allocine-films-a-voir.csv"
-        if [ ! -f "$WISH_PATH" ] && [ -f "$OLDPWD/allocine-films-a-voir.csv" ]; then
-            WISH_PATH="$OLDPWD/allocine-films-a-voir.csv"
-        fi
-        WISHLIST_COUNT=$(tail -n +2 "$WISH_PATH" | wc -l)
-        print_success "Exported $WISHLIST_COUNT wishlist items to $WISH_PATH"
+    if [ -f "$ORIGINAL_DIR/allocine-films-a-voir.csv" ]; then
+        WISHLIST_COUNT=$(tail -n +2 "$ORIGINAL_DIR/allocine-films-a-voir.csv" | wc -l)
+        print_success "Exported $WISHLIST_COUNT wishlist items to $ORIGINAL_DIR/allocine-films-a-voir.csv"
+    elif [ -f "allocine-films-a-voir.csv" ]; then
+        WISHLIST_COUNT=$(tail -n +2 allocine-films-a-voir.csv | wc -l)
+        print_success "Exported $WISHLIST_COUNT wishlist items to allocine-films-a-voir.csv"
     fi
     
-    echo ""
-    echo -e "${CYAN}Next steps:${NC}"
-    echo "  Import to Letterboxd:"
-    echo "    - allocine-films.csv ${ARROW} https://letterboxd.com/import/"
-    echo "    - allocine-films-a-voir.csv ${ARROW} https://letterboxd.com/watchlist/"
-    echo ""
+    echo "" >&3
+    echo -e "${CYAN}Next steps:${NC}" >&3
+    echo "  Import to Letterboxd:" >&3
+    echo "    - allocine-films.csv ${ARROW} https://letterboxd.com/import/" >&3
+    echo "    - allocine-films-a-voir.csv ${ARROW} https://letterboxd.com/watchlist/" >&3
+    echo "" >&3
 }
 
 # Run main with all arguments
