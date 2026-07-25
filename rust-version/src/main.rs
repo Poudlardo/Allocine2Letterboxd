@@ -63,14 +63,8 @@ fn normalize_url(url: &str) -> String {
     url.to_string()
 }
 
-fn print_progress(current: usize, total: usize, message: &str) {
-    let percent = if total > 0 { (current * 100) / total } else { 0 };
-    let bar_width = 30;
-    let filled = (current * bar_width) / total;
-    let bar: String = (0..bar_width)
-        .map(|i| if i < filled { '=' } else { ' ' })
-        .collect();
-    print!("\r[{}] {}% ({}/{}) {}", bar, percent, current, total, message);
+fn print_progress(current: usize, message: &str) {
+    print!("\r{}... {}", message, current);
     io::stdout().flush().unwrap();
 }
 
@@ -137,30 +131,14 @@ impl Scraper {
         response.text().await.map_err(Into::into)
     }
 
-    fn estimate_total_pages(&self, document: &Html) -> usize {
-        let re = Regex::new(r"[?&]page=(\d+)").unwrap();
-        let mut max_page = 0;
-        for link in document.select(&Selector::parse("a[href]").unwrap()) {
-            if let Some(href) = link.value().attr("href") {
-                if let Some(caps) = re.captures(href) {
-                    if let Ok(page_num) = caps.get(1).unwrap().as_str().parse::<usize>() {
-                        max_page = max_page.max(page_num);
-                    }
-                }
-            }
-        }
-        max_page.max(1)
-    }
-
     async fn scrape_films(&self, url: &str) -> Result<Vec<Film>> {
         let mut films = Vec::new();
         let mut current_url = normalize_url(url);
         let mut visited = HashSet::new();
         let mut page = 1;
-        let mut total_pages = 0;
         let mut consecutive_errors = 0;
 
-        print_progress(0, 1, "Scraping films");
+        print_progress(films.len(), "Scraping films");
 
         loop {
             if visited.contains(&current_url) || page > 100 {
@@ -172,14 +150,15 @@ impl Scraper {
                 Ok(html) => {
                     let document = Html::parse_document(&html);
                     
-                    if total_pages == 0 {
-                        total_pages = self.estimate_total_pages(&document);
+                    let page_films = self.extract_films(&document);
+                    
+                    // If no films found on this page, we've reached the end
+                    if page_films.is_empty() {
+                        break;
                     }
                     
-                    let page_films = self.extract_films(&document);
                     films.extend(page_films);
-                    
-                    print_progress(page, total_pages, &format!("{} films", films.len()));
+                    print_progress(films.len(), "Scraping films");
                     
                     consecutive_errors = 0;
 
@@ -307,10 +286,9 @@ impl Scraper {
         let mut current_url = reviews_url;
         let mut visited = HashSet::new();
         let mut page = 1;
-        let mut total_pages = 0;
         let mut consecutive_errors = 0;
 
-        print_progress(0, 1, "Scraping reviews");
+        print_progress(reviews.len(), "Scraping reviews");
 
         loop {
             if visited.contains(&current_url) || page > 100 {
@@ -323,19 +301,19 @@ impl Scraper {
                     let document = Html::parse_document(&html);
                     
                     // Check if there are any review blocks
-                    let review_count = document.select(&self.selectors.review_block).count();
-                    if review_count == 0 {
+                    let review_blocks = document.select(&self.selectors.review_block).count();
+                    if review_blocks == 0 {
                         break;
                     }
                     
-                    if total_pages == 0 {
-                        total_pages = self.estimate_total_pages(&document);
+                    let page_reviews = self.extract_reviews(&document, &current_url).await?;
+                    
+                    if page_reviews.is_empty() {
+                        break;
                     }
                     
-                    let page_reviews = self.extract_reviews(&document, &current_url).await?;
                     reviews.extend(page_reviews);
-                    
-                    print_progress(page, total_pages, &format!("{} reviews", reviews.len()));
+                    print_progress(reviews.len(), "Scraping reviews");
                     
                     consecutive_errors = 0;
 
@@ -379,10 +357,16 @@ impl Scraper {
         let mut reviews = Vec::new();
         
         for block in document.select(&self.selectors.review_block) {
-            // Extract film title
+            // Extract film title - try multiple selectors like JS
             let title = block.select(&self.selectors.review_title)
                 .next()
                 .map(|t| t.inner_html().trim().to_string())
+                .or_else(|| {
+                    // Fallback: try to find title in the block
+                    block.select(&Selector::parse(".review-card-title a").unwrap())
+                        .next()
+                        .map(|t| t.inner_html().trim().to_string())
+                })
                 .unwrap_or_default();
             
             // Extract review text
@@ -431,9 +415,8 @@ impl Scraper {
         let mut current_url = wishlist_url;
         let mut visited = HashSet::new();
         let mut page = 1;
-        let mut total_pages = 0;
 
-        print_progress(0, 1, "Scraping wishlist");
+        print_progress(items.len(), "Scraping wishlist");
 
         loop {
             if visited.contains(&current_url) || page > 100 {
@@ -445,13 +428,13 @@ impl Scraper {
                 Ok(html) => {
                     let document = Html::parse_document(&html);
                     
-                    if total_pages == 0 {
-                        total_pages = self.estimate_total_pages(&document);
+                    let page_items = self.extract_wishlist(&document);
+                    if page_items.is_empty() {
+                        break;
                     }
                     
-                    items.extend(self.extract_wishlist(&document));
-                    
-                    print_progress(page, total_pages, &format!("{} items", items.len()));
+                    items.extend(page_items);
+                    print_progress(items.len(), "Scraping wishlist");
 
                     // Find next page
                     let next_url = self.find_next_page(&document, &current_url);
