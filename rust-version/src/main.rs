@@ -1,6 +1,5 @@
 // Allocine2Letterboxd - Rust Version
-// High-performance scraper for Allocine profiles
-// Mirroring the JavaScript version logic exactly
+// Exact mirror of JavaScript version logic
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -21,23 +20,18 @@ use url::Url;
 #[command(version = "0.1.0")]
 #[command(about = "Export Allocine films to CSV for Letterboxd")]
 struct Args {
-    /// Allocine profile URL
     #[arg(value_parser = validate_allocine_url)]
     url: String,
 
-    /// Output directory
     #[arg(short, long, default_value = ".")]
     output: PathBuf,
 
-    /// Enable verbose logging
     #[arg(short, long)]
     verbose: bool,
 
-    /// Skip reviews scraping
     #[arg(long)]
     skip_reviews: bool,
 
-    /// Skip wishlist scraping
     #[arg(long)]
     skip_wishlist: bool,
 }
@@ -69,7 +63,6 @@ fn normalize_url(url: &str) -> String {
     url.to_string()
 }
 
-/// Simple progress indicator
 fn print_progress(current: usize, total: usize, message: &str) {
     let percent = if total > 0 { (current * 100) / total } else { 0 };
     let bar_width = 30;
@@ -82,7 +75,7 @@ fn print_progress(current: usize, total: usize, message: &str) {
 }
 
 fn clear_progress() {
-    println!();
+    print!("\r{}\n", " ".repeat(80));
 }
 
 struct Selectors {
@@ -144,6 +137,21 @@ impl Scraper {
         response.text().await.map_err(Into::into)
     }
 
+    fn estimate_total_pages(&self, document: &Html) -> usize {
+        let re = Regex::new(r"[?&]page=(\d+)").unwrap();
+        let mut max_page = 0;
+        for link in document.select(&Selector::parse("a[href]").unwrap()) {
+            if let Some(href) = link.value().attr("href") {
+                if let Some(caps) = re.captures(href) {
+                    if let Ok(page_num) = caps.get(1).unwrap().as_str().parse::<usize>() {
+                        max_page = max_page.max(page_num);
+                    }
+                }
+            }
+        }
+        max_page.max(1)
+    }
+
     async fn scrape_films(&self, url: &str) -> Result<Vec<Film>> {
         let mut films = Vec::new();
         let mut current_url = normalize_url(url);
@@ -164,24 +172,30 @@ impl Scraper {
                 Ok(html) => {
                     let document = Html::parse_document(&html);
                     
-                    // Estimate total pages
                     if total_pages == 0 {
                         total_pages = self.estimate_total_pages(&document);
                     }
                     
-                    // Extract films from page
                     let page_films = self.extract_films(&document);
                     films.extend(page_films);
                     
-                    print_progress(page, total_pages.max(1), &format!("{} films", films.len()));
+                    print_progress(page, total_pages, &format!("{} films", films.len()));
+                    
+                    consecutive_errors = 0;
 
-                    // Find next page
+                    // Find next page - try all selectors
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
                         current_url = next;
                         page += 1;
                     } else {
-                        break;
+                        // Try to construct next page URL manually
+                        if current_url.contains("?page=") {
+                            let base: Vec<&str> = current_url.split("?page=").collect();
+                            current_url = format!("{}?page={}", base[0], page + 1);
+                        } else {
+                            current_url = format!("{}?page={}", current_url, page + 1);
+                        }
                     }
                 }
                 Err(e) => {
@@ -192,12 +206,9 @@ impl Scraper {
                         break;
                     }
                     page += 1;
-                    // Try to construct next page URL manually
                     if current_url.contains("?page=") {
                         let base: Vec<&str> = current_url.split("?page=").collect();
                         current_url = format!("{}?page={}", base[0], page);
-                    } else if current_url.ends_with("/films/") {
-                        current_url = format!("{}?page={}", current_url, page);
                     } else {
                         current_url = format!("{}?page={}", current_url, page);
                     }
@@ -208,25 +219,10 @@ impl Scraper {
         Ok(films)
     }
 
-    fn estimate_total_pages(&self, document: &Html) -> usize {
-        let mut max_page = 0;
-        for link in document.select(&Selector::parse("a[href*='page=']").unwrap()) {
-            if let Some(href) = link.value().attr("href") {
-                if let Some(pos) = href.find("page=") {
-                    let page_str = &href[pos + 6..];
-                    if let Ok(page_num) = page_str.parse::<usize>() {
-                        max_page = max_page.max(page_num);
-                    }
-                }
-            }
-        }
-        max_page.max(1)
-    }
-
     fn extract_films(&self, document: &Html) -> Vec<Film> {
         let mut films = Vec::new();
         
-        // Try primary selector
+        // Primary selector
         for el in document.select(&self.selectors.film_item) {
             let title = el.select(&self.selectors.film_title)
                 .next()
@@ -252,7 +248,7 @@ impl Scraper {
             }
         }
         
-        // If no films found, try fallback selector (like JS version)
+        // Fallback selector (like JS version)
         if films.is_empty() {
             for el in document.select(&Selector::parse(".card").unwrap()) {
                 let title = el.select(&Selector::parse(".meta-title-link, [class*=\"title\"]").unwrap())
@@ -284,7 +280,6 @@ impl Scraper {
     }
 
     fn find_next_page(&self, document: &Html, current_url: &str) -> Option<String> {
-        // Try all three selectors like JS version
         for selector in &[&self.selectors.next_page, &self.selectors.next_page_alt, &self.selectors.next_page_href] {
             for link in document.select(selector) {
                 if let Some(href) = link.value().attr("href") {
@@ -292,22 +287,13 @@ impl Scraper {
                 }
             }
         }
-        
-        // If no next page button found, try to construct URL manually
-        // Check if there are any page links
-        for link in document.select(&Selector::parse("a[href*='page=']").unwrap()) {
-            if let Some(href) = link.value().attr("href") {
-                return resolve_url(href, current_url);
-            }
-        }
-        
         None
     }
 
     async fn scrape_reviews(&self, url: &str) -> Result<Vec<Review>> {
         let mut reviews = Vec::new();
         
-        // Construct reviews URL like JS version: replace /films/ with /critiques/films/
+        // Construct reviews URL: replace /films/ with /critiques/films/
         let reviews_url = if url.ends_with("/films/") {
             url.replace("/films/", "/critiques/films/")
         } else if url.ends_with("/films") {
@@ -337,30 +323,35 @@ impl Scraper {
                     let document = Html::parse_document(&html);
                     
                     // Check if there are any review blocks
-                    let review_blocks = document.select(&self.selectors.review_block).count();
-                    if review_blocks == 0 {
-                        // No reviews found, break
+                    let review_count = document.select(&self.selectors.review_block).count();
+                    if review_count == 0 {
                         break;
                     }
                     
-                    // Estimate total pages
                     if total_pages == 0 {
                         total_pages = self.estimate_total_pages(&document);
                     }
                     
-                    // Extract reviews from page
                     let page_reviews = self.extract_reviews(&document, &current_url).await?;
                     reviews.extend(page_reviews);
                     
-                    print_progress(page, total_pages.max(1), &format!("{} reviews", reviews.len()));
+                    print_progress(page, total_pages, &format!("{} reviews", reviews.len()));
+                    
                     consecutive_errors = 0;
+
                     // Find next page
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
                         current_url = next;
                         page += 1;
                     } else {
-                        break;
+                        // Try to construct next page URL manually
+                        if current_url.contains("?page=") {
+                            let base: Vec<&str> = current_url.split("?page=").collect();
+                            current_url = format!("{}?page={}", base[0], page + 1);
+                        } else {
+                            current_url = format!("{}?page={}", current_url, page + 1);
+                        }
                     }
                 }
                 Err(e) => {
@@ -371,12 +362,9 @@ impl Scraper {
                         break;
                     }
                     page += 1;
-                    // Try to construct next page URL manually
                     if current_url.contains("?page=") {
                         let base: Vec<&str> = current_url.split("?page=").collect();
                         current_url = format!("{}?page={}", base[0], page);
-                    } else if current_url.ends_with("/critiques/films/") {
-                        current_url = format!("{}?page={}", current_url, page);
                     } else {
                         current_url = format!("{}?page={}", current_url, page);
                     }
@@ -391,7 +379,7 @@ impl Scraper {
         let mut reviews = Vec::new();
         
         for block in document.select(&self.selectors.review_block) {
-            // Extract film title from review card title
+            // Extract film title
             let title = block.select(&self.selectors.review_title)
                 .next()
                 .map(|t| t.inner_html().trim().to_string())
@@ -427,7 +415,7 @@ impl Scraper {
                 text
             };
 
-            // Clean up the text like JS version
+            // Clean up text like JS version
             let cleaned_text = full_text.replace('\n', " ").replace('\r', " ").replace("  ", " ").trim().to_string();
 
             reviews.push(Review { title, review: cleaned_text });
@@ -463,12 +451,21 @@ impl Scraper {
                     
                     items.extend(self.extract_wishlist(&document));
                     
-                    print_progress(page, total_pages.max(1), &format!("{} items", items.len()));
+                    print_progress(page, total_pages, &format!("{} items", items.len()));
+
+                    // Find next page
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
+                        current_url = next;
                         page += 1;
                     } else {
-                        break;
+                        // Try to construct next page URL manually
+                        if current_url.contains("?page=") {
+                            let base: Vec<&str> = current_url.split("?page=").collect();
+                            current_url = format!("{}?page={}", base[0], page + 1);
+                        } else {
+                            current_url = format!("{}?page={}", current_url, page + 1);
+                        }
                     }
                 }
                 Err(e) => {
@@ -555,12 +552,10 @@ struct ExportEntry {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::Builder::from_default_env().format_timestamp(None).init();
     let args = Args::parse();
 
     if args.verbose {
         std::env::set_var("RUST_LOG", "info");
-        env_logger::Builder::from_default_env().format_timestamp(None).init();
     }
 
     println!("A2L - Rust Version");
