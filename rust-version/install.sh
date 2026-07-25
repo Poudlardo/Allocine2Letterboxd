@@ -1,9 +1,8 @@
 #!/bin/bash
 
 # Allocine2Letterboxd - Rust Version One-Liner
-# Simple, universal, works everywhere
+# Universal version that works with curl | bash
 
-# Exit on error
 set -e
 
 # Repository info
@@ -24,9 +23,27 @@ echo "        Allocine2Letterboxd - Rust Version"
 echo "  High-performance scraper for Allocine profiles"
 echo ""
 
-# Ask for URL (this MUST work)
-echo -n "  Enter your Allocine profile URL: "
-read -r ALLOCINE_URL
+# Ask for URL - this is the critical part
+# When piped (curl | bash), stdin is occupied, so we need to read from terminal
+# Solution: temporarily redirect stdin from /dev/tty if available, else use stdin
+if [ -t 0 ]; then
+    # Running interactively, read from stdin (which is terminal)
+    echo -n "  Enter your Allocine profile URL: "
+    read -r ALLOCINE_URL
+else
+    # Running via pipe (curl | bash), stdin is not a terminal
+    # Try to read from /dev/tty if available
+    if [ -e /dev/tty ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+        echo -n "  Enter your Allocine profile URL: " > /dev/tty
+        exec 3</dev/tty
+        read -u 3 -r ALLOCINE_URL
+        exec 3>&-
+    else
+        # Fallback: just prompt and hope for the best
+        echo -n "  Enter your Allocine profile URL: "
+        read -r ALLOCINE_URL
+    fi
+fi
 
 # Validate URL
 if [[ ! $ALLOCINE_URL =~ ^https://www\.allocine\.fr/membre-[A-Z0-9] ]]; then
