@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use csv::Writer;
-use indicatif::ProgressBar;
+use indicatif::{ProgressBar, ProgressStyle};
 use log::info;
 use regex::Regex;
 use reqwest::Client;
@@ -13,7 +13,9 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Mutex;
 use url::Url;
 
 #[derive(Parser, Debug)]
@@ -128,7 +130,7 @@ impl Scraper {
         response.text().await.map_err(Into::into)
     }
 
-    async fn scrape_films(&self, url: &str, pb: &ProgressBar) -> Result<Vec<Film>> {
+    async fn scrape_films(&self, url: &str, pb: &ProgressBar, progress: &Arc<Mutex<ScrapeProgress>>) -> Result<Vec<Film>> {
         let mut films = Vec::new();
         let mut current_url = normalize_url(url);
         let mut visited = HashSet::new();
@@ -145,10 +147,15 @@ impl Scraper {
                     let document = Html::parse_document(&html);
                     let page_films = self.extract_films(&document);
                     films.extend(page_films);
-                    pb.set_message(format!("{} films", films.len()));
-                    pb.inc(1);
+                    
+                    // Update progress
+                    {
+                        let mut p = progress.lock().await;
+                        p.films_scraped = films.len();
+                        p.current_page = page;
+                        p.update_progress_bar(pb);
+                    }
 
-                    // Try all three next page selectors
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
                         current_url = next;
@@ -196,21 +203,18 @@ impl Scraper {
     }
 
     fn find_next_page(&self, document: &Html, current_url: &str) -> Option<String> {
-        // Try primary next page button
         for link in document.select(&self.selectors.next_page) {
             if let Some(href) = link.value().attr("href") {
                 return resolve_url(href, current_url);
             }
         }
         
-        // Try alternative next page button
         for link in document.select(&self.selectors.next_page_alt) {
             if let Some(href) = link.value().attr("href") {
                 return resolve_url(href, current_url);
             }
         }
         
-        // Try pagination links with ?page= parameter
         for link in document.select(&self.selectors.next_page_href) {
             if let Some(href) = link.value().attr("href") {
                 return resolve_url(href, current_url);
@@ -220,7 +224,7 @@ impl Scraper {
         None
     }
 
-    async fn scrape_reviews(&self, url: &str, pb: &ProgressBar) -> Result<Vec<Review>> {
+    async fn scrape_reviews(&self, url: &str, pb: &ProgressBar, progress: &Arc<Mutex<ScrapeProgress>>) -> Result<Vec<Review>> {
         let mut reviews = Vec::new();
         let base_url = url.to_string();
         let reviews_url = if base_url.ends_with("/films/") || base_url.ends_with("/films") {
@@ -246,10 +250,15 @@ impl Scraper {
                     let document = Html::parse_document(&html);
                     let page_reviews = self.extract_reviews(&document, &current_url).await?;
                     reviews.extend(page_reviews);
-                    pb.set_message(format!("{} reviews", reviews.len()));
-                    pb.inc(1);
+                    
+                    // Update progress
+                    {
+                        let mut p = progress.lock().await;
+                        p.reviews_scraped = reviews.len();
+                        p.current_page = page;
+                        p.update_progress_bar(pb);
+                    }
 
-                    // Try all three next page selectors for reviews
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
                         current_url = next;
@@ -307,7 +316,7 @@ impl Scraper {
         Ok(reviews)
     }
 
-    async fn scrape_wishlist(&self, url: &str, pb: &ProgressBar) -> Result<Vec<WishlistItem>> {
+    async fn scrape_wishlist(&self, url: &str, pb: &ProgressBar, progress: &Arc<Mutex<ScrapeProgress>>) -> Result<Vec<WishlistItem>> {
         let mut items = Vec::new();
         let base_url = normalize_url(url);
         let wishlist_url = base_url.replace("/films/", "/films/envie-de-voir/");
@@ -325,10 +334,15 @@ impl Scraper {
                 Ok(html) => {
                     let document = Html::parse_document(&html);
                     items.extend(self.extract_wishlist(&document));
-                    pb.set_message(format!("{} items", items.len()));
-                    pb.inc(1);
+                    
+                    // Update progress
+                    {
+                        let mut p = progress.lock().await;
+                        p.wishlist_scraped = items.len();
+                        p.current_page = page;
+                        p.update_progress_bar(pb);
+                    }
 
-                    // Try all three next page selectors for wishlist
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
                         current_url = next;
@@ -418,6 +432,60 @@ struct ExportEntry {
     review: String,
 }
 
+/// Progress tracking struct for unified progress bar
+struct ScrapeProgress {
+    total_steps: usize,
+    current_step: usize,
+    current_page: usize,
+    total_pages: usize,
+    films_scraped: usize,
+    reviews_scraped: usize,
+    wishlist_scraped: usize,
+    step_names: Vec<String>,
+}
+
+impl ScrapeProgress {
+    fn new() -> Self {
+        Self {
+            total_steps: 3,
+            current_step: 0,
+            current_page: 0,
+            total_pages: 0,
+            films_scraped: 0,
+            reviews_scraped: 0,
+            wishlist_scraped: 0,
+            step_names: vec![
+                "Scraping films".to_string(),
+                "Scraping reviews".to_string(),
+                "Scraping wishlist".to_string(),
+            ],
+        }
+    }
+
+    fn update_progress_bar(&self, pb: &ProgressBar) {
+        let step_progress = self.current_step as f64 / self.total_steps as f64;
+        let page_progress = if self.total_pages > 0 {
+            self.current_page as f64 / self.total_pages as f64
+        } else {
+            0.0
+        };
+        
+        // Combine step and page progress
+        let overall_progress = (step_progress + page_progress / self.total_steps as f64) / 2.0;
+        let progress = (overall_progress * 100.0) as u64;
+        
+        let message = match self.current_step {
+            0 => format!("Films: {} | Pages: {}", self.films_scraped, self.current_page),
+            1 => format!("Reviews: {} | Pages: {}", self.reviews_scraped, self.current_page),
+            2 => format!("Wishlist: {} | Pages: {}", self.wishlist_scraped, self.current_page),
+            _ => format!("Step {}/{}", self.current_step, self.total_steps),
+        };
+        
+        pb.set_position(progress);
+        pb.set_message(format!("{} | {}", self.step_names[self.current_step], message));
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::Builder::from_default_env().format_timestamp(None).init();
@@ -428,8 +496,9 @@ async fn main() -> Result<()> {
         env_logger::Builder::from_default_env().format_timestamp(None).init();
     }
 
-    info!("Allocine2Letterboxd - Rust Version");
-    info!("Starting scrape for: {}", args.url);
+    println!("Allocine2Letterboxd - Rust Version");
+    println!("===================================");
+    println!("");
 
     if !args.output.exists() {
         std::fs::create_dir_all(&args.output)?;
@@ -437,34 +506,66 @@ async fn main() -> Result<()> {
 
     let scraper = Scraper::new()?;
 
-    // Scrape films
-    info!("Scraping films...");
-    let pb_films = ProgressBar::new_spinner();
-    pb_films.set_style(indicatif::ProgressStyle::default_spinner().template("{spinner} {msg}").unwrap());
-    let films = scraper.scrape_films(&args.url, &pb_films).await?;
-    pb_films.finish_with_message(format!("Scraped {} films", films.len()));
+    // Create unified progress bar
+    let pb = ProgressBar::new(100);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}% ({msg})")
+            .unwrap()
+            .progress_chars("#>-")
+    );
+    pb.enable_steady_tick(Duration::from_millis(100));
 
-    // Scrape reviews
+    let progress = Arc::new(Mutex::new(ScrapeProgress::new()));
+
+    // Step 1: Scrape films
+    {
+        let mut p = progress.lock().await;
+        p.current_step = 0;
+        p.update_progress_bar(&pb);
+    }
+    
+    info!("Scraping films...");
+    let films = scraper.scrape_films(&args.url, &pb, &progress).await?;
+
+    // Step 2: Scrape reviews
+    {
+        let mut p = progress.lock().await;
+        p.current_step = 1;
+        p.update_progress_bar(&pb);
+    }
+    
     let reviews = if args.skip_reviews {
         info!("Skipping reviews");
         Vec::new()
     } else {
         info!("Scraping reviews...");
-        let pb_reviews = ProgressBar::new_spinner();
-        pb_reviews.set_style(indicatif::ProgressStyle::default_spinner().template("{spinner} {msg}").unwrap());
-        scraper.scrape_reviews(&args.url, &pb_reviews).await?
+        scraper.scrape_reviews(&args.url, &pb, &progress).await?
     };
 
-    // Scrape wishlist
+    // Step 3: Scrape wishlist
+    {
+        let mut p = progress.lock().await;
+        p.current_step = 2;
+        p.update_progress_bar(&pb);
+    }
+    
     let wishlist = if args.skip_wishlist {
         info!("Skipping wishlist");
         Vec::new()
     } else {
         info!("Scraping wishlist...");
-        let pb_wishlist = ProgressBar::new_spinner();
-        pb_wishlist.set_style(indicatif::ProgressStyle::default_spinner().template("{spinner} {msg}").unwrap());
-        scraper.scrape_wishlist(&args.url, &pb_wishlist).await?
+        scraper.scrape_wishlist(&args.url, &pb, &progress).await?
     };
+
+    // Final update
+    {
+        let mut p = progress.lock().await;
+        p.current_step = p.total_steps;
+        p.update_progress_bar(&pb);
+    }
+
+    pb.finish_with_message("Scraping complete!");
 
     // Export films
     if !films.is_empty() {
@@ -482,6 +583,7 @@ async fn main() -> Result<()> {
         }
         writer.flush()?;
         info!("Exported {} films to {}", entries.len(), path.display());
+        println!("✓ Exported {} films to {}", entries.len(), path.display());
     }
 
     // Export wishlist
@@ -494,8 +596,10 @@ async fn main() -> Result<()> {
         }
         writer.flush()?;
         info!("Exported {} wishlist items to {}", wishlist.len(), path.display());
+        println!("✓ Exported {} wishlist items to {}", wishlist.len(), path.display());
     }
 
-    info!("Done!");
+    println!("");
+    println!("Done!");
     Ok(())
 }
