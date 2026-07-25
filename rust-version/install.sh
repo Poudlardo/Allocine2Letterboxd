@@ -16,8 +16,10 @@ NC='\033[0m' # No Color
 # Simple arrow
 ARROW='->'
 
-# Get the directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Repository info
+REPO_URL="https://github.com/Poudlardo/Allocine2Letterboxd.git"
+BRANCH="vibe/rust-version-a5b8bf"
+TEMP_DIR=""
 
 # Check if running as one-liner (piped from curl)
 if [ -t 0 ]; then
@@ -25,6 +27,15 @@ if [ -t 0 ]; then
 else
     INTERACTIVE=0
 fi
+
+# Cleanup function
+cleanup() {
+    if [ -n "$TEMP_DIR" ] && [ -d "$TEMP_DIR" ]; then
+        rm -rf "$TEMP_DIR"
+    fi
+}
+
+trap cleanup EXIT
 
 # Clear current line
 clear_line() {
@@ -106,13 +117,29 @@ main() {
     
     echo ""
     
-    # Step 1: Check and install Rust
+    # Step 1: Clone the repository to a temp directory
+    print_step "Setting up environment"
+    TEMP_DIR=$(mktemp -d)
+    
+    if git clone --branch "$BRANCH" --depth 1 "$REPO_URL" "$TEMP_DIR" 2>&1 | grep -q "Cloning into"; then
+        clear_line
+        print_success "Repository cloned"
+    else
+        clear_line
+        print_error "Failed to clone repository"
+        exit 1
+    fi
+    
+    # Change to the cloned directory
+    cd "$TEMP_DIR/rust-version"
+    
+    # Step 2: Check and install Rust
     print_step "Checking Rust installation"
     if ! command_exists cargo; then
         clear_line
         print_warning "Rust not found. Installing Rust..."
         
-        # Install Rust silently (suppress most output)
+        # Install Rust silently
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y -q
         
         # Source the environment
@@ -129,11 +156,8 @@ main() {
     RUST_VERSION=$(rustc --version | awk '{print $2}')
     print_info "Rust version: $RUST_VERSION"
     
-    # Step 2: Change to script directory and build
+    # Step 3: Build the project
     print_step "Building A2L"
-    
-    # Change to the directory where Cargo.toml is located
-    cd "$SCRIPT_DIR"
     
     # Build the project
     if cargo build --release --quiet 2>&1; then
@@ -153,7 +177,7 @@ main() {
     print_step "Starting scrape"
     echo ""
     
-    # Step 3: Run the scraper from the script directory
+    # Step 4: Run the scraper
     if ./target/release/allocine2letterboxd "$ALLOCINE_URL"; then
         echo ""
     else
@@ -163,19 +187,36 @@ main() {
         exit $SCRAPE_EXIT_CODE
     fi
     
-    # Step 4: Show results
+    # Step 5: Copy CSV files to current directory before cleanup
+    if [ -f "allocine-films.csv" ]; then
+        cp allocine-films.csv "$OLDPWD/" 2>/dev/null || cp allocine-films.csv .
+    fi
+    
+    if [ -f "allocine-films-a-voir.csv" ]; then
+        cp allocine-films-a-voir.csv "$OLDPWD/" 2>/dev/null || cp allocine-films-a-voir.csv .
+    fi
+    
+    # Step 6: Show results
     print_success "All done!"
     echo ""
     
     # Check if CSV files were created
-    if [ -f "allocine-films.csv" ]; then
-        FILM_COUNT=$(tail -n +2 allocine-films.csv | wc -l)
-        print_success "Exported $FILM_COUNT films to allocine-films.csv"
+    if [ -f "allocine-films.csv" ] || [ -f "$OLDPWD/allocine-films.csv" ]; then
+        CSV_PATH="allocine-films.csv"
+        if [ ! -f "$CSV_PATH" ] && [ -f "$OLDPWD/allocine-films.csv" ]; then
+            CSV_PATH="$OLDPWD/allocine-films.csv"
+        fi
+        FILM_COUNT=$(tail -n +2 "$CSV_PATH" | wc -l)
+        print_success "Exported $FILM_COUNT films to $CSV_PATH"
     fi
     
-    if [ -f "allocine-films-a-voir.csv" ]; then
-        WISHLIST_COUNT=$(tail -n +2 allocine-films-a-voir.csv | wc -l)
-        print_success "Exported $WISHLIST_COUNT wishlist items to allocine-films-a-voir.csv"
+    if [ -f "allocine-films-a-voir.csv" ] || [ -f "$OLDPWD/allocine-films-a-voir.csv" ]; then
+        WISH_PATH="allocine-films-a-voir.csv"
+        if [ ! -f "$WISH_PATH" ] && [ -f "$OLDPWD/allocine-films-a-voir.csv" ]; then
+            WISH_PATH="$OLDPWD/allocine-films-a-voir.csv"
+        fi
+        WISHLIST_COUNT=$(tail -n +2 "$WISH_PATH" | wc -l)
+        print_success "Exported $WISHLIST_COUNT wishlist items to $WISH_PATH"
     fi
     
     echo ""
