@@ -13,9 +13,9 @@ let SELECTORS = {
     tabReview: 'span.roller-item[title="Critiques"]',
     filmReviewBlock: '.review-card',
     filmReview: '.content-txt.review-card-content',
-    filmReviewLirePlus: '.blue-link.link-more',
-    filmTitleOnReview: 'a.xXx',
-    filmTitleInReview: '.review-card-title a.xXx',
+    filmReviewLirePlus: 'a.blue-link.link-more',
+    filmTitleOnReview: '.review-card-title a',
+    filmTitleInReview: '.review-card-title a',
     nextPage: '.button.button-md.button-primary-full.button-right',
     nextPageAlt: 'button[title="Page suivante"]',
     pagination: '.pagination-item-holder',
@@ -30,11 +30,11 @@ try {
         const discovered = data?.discovered || data;
         if (discovered) {
             Object.assign(SELECTORS, discovered);
-            console.log('📄 Sélecteurs chargés depuis selectors.json');
+            console.log('\ud83d\udcc4 Sélecteurs chargés depuis selectors.json');
         }
     }
 } catch (e) {
-    console.log('⚠️  Impossible de charger selectors.json, utilisation des sélecteurs par défaut');
+    console.log('\u26a0\ufe0f  Impossible de charger selectors.json, utilisation des sélecteurs par défaut');
 }
 
 // Helper function to wait for a specific duration
@@ -44,9 +44,9 @@ function renderProgressBar(current, total, suffix = '') {
     const width = 36;
     const pct = total > 0 ? Math.min(current / total, 1) : 0;
     const filled = Math.round(pct * width);
-    const bar = '█'.repeat(filled) + '░'.repeat(width - filled);
+    const bar = '\u2588'.repeat(filled) + '\u2591'.repeat(width - filled);
     const pctStr = Math.round(pct * 100).toString().padStart(3);
-    process.stdout.write(`\r  [${bar}] ${pctStr}% (${current}/${total})${suffix ? ' — ' + suffix : ''}   `);
+    process.stdout.write(`\r  [${bar}] ${pctStr}% (${current}/${total})${suffix ? ' \u2014 ' + suffix : ''}   `);
 }
 
 async function getTotalPages(page) {
@@ -76,20 +76,6 @@ function getPuppeteerCacheDir() {
     }
 }
 
-// Direct navigation to critiques page (without relying on the tab selector)
-async function navigateToCritiquesDirect(page, profileUrl) {
-    const reviewUrl = profileUrl.replace(/\/films\/?$/, '/critiques/films/');
-    console.log(`🔗 Direct critiques URL: ${reviewUrl}`);
-    await page.goto(reviewUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-    if (await page.$(SELECTORS.popupAcceptCookies)) {
-        await page.click(SELECTORS.popupAcceptCookies);
-        await delay(600);
-    }
-    await page.waitForSelector(SELECTORS.filmReviewBlock, { timeout: 8000 }).catch(() => {
-        console.log(`   ℹ️ Aucune critique trouvée pour ce profil`);
-    });
-}
-
 // Function to check if browser is installed in Puppeteer cache
 function isBrowserInstalled(browserName) {
     const cacheDir = getPuppeteerCacheDir();
@@ -104,14 +90,14 @@ function isBrowserInstalled(browserName) {
             folder.toLowerCase().includes(browserName.toLowerCase())
         );
     } catch (error) {
-        console.log(`⚠️  Could not read cache directory: ${error.message}`);
+        console.log(`\u26a0\ufe0f  Could not read cache directory: ${error.message}`);
         return false;
     }
 }
 
 // Function to install browser
 async function installBrowser(browserName) {
-    console.log(`📦 Installing ${browserName} for Puppeteer...`);
+    console.log(`\ud83d\udce6 Installing ${browserName} for Puppeteer...`);
     try {
         const command = `npx puppeteer browsers install ${browserName}`;
         const options = { 
@@ -121,10 +107,10 @@ async function installBrowser(browserName) {
         };
         
         execSync(command, options);
-        console.log(`✅ ${browserName} installed successfully!`);
+        console.log(`\u2705 ${browserName} installed successfully!`);
         return true;
     } catch (error) {
-        console.error(`❌ Failed to install ${browserName}:`, error.message);
+        console.error(`\u274c Failed to install ${browserName}:`, error.message);
         return false;
     }
 }
@@ -161,10 +147,10 @@ async function launchBrowser() {
         '--disable-gpu',
     ];
 
-    // ── Étape 1 : navigateur système (pas besoin de sudo ni de téléchargement) ──
+    // Étape 1 : navigateur système (pas besoin de sudo ni de téléchargement)
     const system = findSystemBrowser();
     if (system) {
-        console.log(`🔍 Navigateur système détecté : ${system.path}`);
+        console.log(`\ud83d\udd0d Navigateur système détecté : ${system.path}`);
         try {
             const isFirefox = system.bin.includes('firefox');
             const browser = await puppeteer.launch({
@@ -173,14 +159,14 @@ async function launchBrowser() {
                 headless: true,
                 args: commonArgs
             });
-            console.log(`✅ ${system.bin} (système) lancé`);
+            console.log(`\u2705 ${system.bin} (système) lancé`);
             return browser;
         } catch (e) {
-            console.log(`⚠️  ${system.bin} système échec : ${e.message}`);
+            console.log(`\u26a0\ufe0f  ${system.bin} système échec : ${e.message}`);
         }
     }
 
-    // ── Étape 2 : navigateurs Puppeteer (téléchargés dans ~/.cache/puppeteer) ──
+    // Étape 2 : navigateurs Puppeteer (téléchargés dans ~/.cache/puppeteer)
     const puppeteerCandidates = [
         { name: 'firefox', launchOpts: { browser: 'firefox', headless: true } },
         { name: 'chrome',  launchOpts: { headless: true } },
@@ -189,26 +175,26 @@ async function launchBrowser() {
     let missingLibs = false;
     for (const { name, launchOpts } of puppeteerCandidates) {
         if (!isBrowserInstalled(name)) {
-            console.log(`📥 ${name} absent du cache Puppeteer, installation...`);
+            console.log(`\ud83d\udce5 ${name} absent du cache Puppeteer, installation...`);
             const ok = await installBrowser(name);
             if (!ok) {
-                console.log(`⚠️  Installation ${name} échouée, tentative suivante...`);
+                console.log(`\u26a0\ufe0f  Installation ${name} échouée, tentative suivante...`);
                 continue;
             }
         }
         try {
             const browser = await puppeteer.launch({ ...launchOpts, args: commonArgs });
-            console.log(`✅ ${name} (Puppeteer) lancé`);
+            console.log(`\u2705 ${name} (Puppeteer) lancé`);
             return browser;
         } catch (e) {
             if (isMissingSystemLibs(e.message)) missingLibs = true;
-            console.log(`⚠️  ${name} échec : ${e.message.split('\n')[0]}`);
+            console.log(`\u26a0\ufe0f  ${name} échec : ${e.message.split('\n')[0]}`);
         }
     }
 
-    // ── Étape 3 : diagnostic clair ──────────────────────────────────────────────
+    // Étape 3 : diagnostic clair
     if (missingLibs) {
-        console.error('\n❌ Des librairies système manquent pour lancer le navigateur.');
+        console.error('\n\u274c Des librairies système manquent pour lancer le navigateur.');
         console.error('   Installez-les avec la commande suivante (une seule fois) :');
         console.error('\n   sudo apt-get install -y libgtk-3-0 libatk1.0-0 libatk-bridge2.0-0 \\');
         console.error('     libnss3 libgbm1 libxss1 libdbus-glib-1-2 libasound2 2>/dev/null || \\');
@@ -221,7 +207,7 @@ async function launchBrowser() {
 
 async function gotoTabCritiques(page, url) {
     const reviewUrl = url.replace(/\/films\/?$/, '/critiques/films/');
-    console.log(`📝 Navigating to reviews tab: ${reviewUrl}`);
+    console.log(`\ud83d\udcdd Navigating to reviews tab: ${reviewUrl}`);
     
     await page.goto(reviewUrl, { 
         waitUntil: 'domcontentloaded',
@@ -229,14 +215,14 @@ async function gotoTabCritiques(page, url) {
     });
     
     if (await page.$(SELECTORS.popupAcceptCookies)) {
-        console.log('🍪 Accepting cookies...');
+        console.log('\ud83c\udf6a Accepting cookies...');
         await page.click(SELECTORS.popupAcceptCookies);
         await delay(600);
     }
     
-    console.log('🔍 Waiting for review blocks to load...');
+    console.log('\ud83d\udd0d Waiting for review blocks to load...');
     await page.waitForSelector(SELECTORS.filmReviewBlock, { timeout: 8000 }).catch(() => {
-        console.log(`   ℹ️ Aucune critique trouvée pour ce profil`);
+        console.log(`   \u2139\ufe0f Aucune critique trouvée pour ce profil`);
     });
 }
 
@@ -248,7 +234,7 @@ async function scrapeAllFilms(page, profileUrl) {
     let consecutiveErrors = 0;
     let totalPages = null;
 
-    console.log('🎬 Scraping des films...');
+    console.log('\ud83c\udfac Scraping des films...');
 
     while (true) {
         if (visitedUrls.has(url)) break;
@@ -265,7 +251,7 @@ async function scrapeAllFilms(page, profileUrl) {
                     await page.waitForSelector('.card', { timeout: 3000 });
                 } catch (e2) {
                     process.stdout.write('\n');
-                    console.log(`   ⚠️ Aucun film trouvé sur la page ${pageNumber}`);
+                    console.log(`   \u26a0\ufe0f Aucun film trouvé sur la page ${pageNumber}`);
                     break;
                 }
             }
@@ -277,17 +263,17 @@ async function scrapeAllFilms(page, profileUrl) {
 
             if (totalPages === null) {
                 totalPages = await getTotalPages(page);
-                process.stdout.write(`  📊 ${totalPages} page(s) de films détectée(s)\n`);
+                process.stdout.write(`  \ud83d\udcca ${totalPages} page(s) de films détectée(s)\n`);
             }
 
             await delay(1500);
             consecutiveErrors = 0;
         } catch (error) {
             process.stdout.write('\n');
-            console.log(`   ⚠️ Erreur de navigation (page ${pageNumber}): ${error.message}`);
+            console.log(`   \u26a0\ufe0f Erreur de navigation (page ${pageNumber}): ${error.message}`);
             consecutiveErrors++;
             if (consecutiveErrors >= 2) {
-                console.log(`   ❌ Trop d'erreurs consécutives, arrêt`);
+                console.log(`   \u274c Trop d'erreurs consécutives, arrêt`);
                 break;
             }
             pageNumber++;
@@ -338,7 +324,7 @@ async function scrapeAllFilms(page, profileUrl) {
             }
         } catch (error) {
             process.stdout.write('\n');
-            console.log(`   ❌ Erreur extraction page ${pageNumber}: ${error.message}`);
+            console.log(`   \u274c Erreur extraction page ${pageNumber}: ${error.message}`);
         }
 
         films = films.concat(pageFilms);
@@ -373,16 +359,15 @@ async function scrapeAllFilms(page, profileUrl) {
         url = finalUrl;
         pageNumber++;
 
-
     }
 
     process.stdout.write('\n');
-    console.log(`✅ ${films.length} films extraits au total`);
+    console.log(`\u2705 ${films.length} films extraits au total`);
     return films;
 }
 
 async function scrapeAllReviews(page, profileUrl) {
-    console.log('\n📝 Scraping des critiques...');
+    console.log('\n\ud83d\udcdd Scraping des critiques...');
 
     const reviews = [];
     await gotoTabCritiques(page, profileUrl);
@@ -399,56 +384,48 @@ async function scrapeAllReviews(page, profileUrl) {
         try {
             await page.waitForSelector(SELECTORS.filmReviewBlock, { timeout: 5000 });
         } catch (e) {
-            if (pageNum === 1) process.stdout.write('  ℹ️  Aucune critique trouvée sur ce profil\n');
+            if (pageNum === 1) process.stdout.write('  \u2139\ufe0f  Aucune critique trouvée sur ce profil\n');
             break;
         }
 
         if (totalPages === null) {
             totalPages = await getTotalPages(page);
-            process.stdout.write(`  📊 ${totalPages} page(s) de critiques détectée(s)\n`);
+            process.stdout.write(`  \ud83d\udcca ${totalPages} page(s) de critiques détectée(s)\n`);
         }
 
         let pageReviews = [];
         try {
-            pageReviews = await page.evaluate((selector) => {
+            pageReviews = await page.evaluate((selector, titleSelector, reviewSelector) => {
                 const blocks = document.querySelectorAll(selector);
                 const reviews = [];
                 for (let block of blocks) {
-                    let filmTitle = "", reviewText = "", hasLirePlus = false, moreUrl = "";
-                    try { const el = block.querySelector('.review-card-title a.xXx'); filmTitle = el ? el.textContent.trim() : ''; } catch (e) {}
-                    try { const el = block.querySelector('.content-txt.review-card-content'); reviewText = el ? el.textContent.trim() : ''; } catch (e) {}
-                    try { const el = block.querySelector('a.xXx.blue-link.link-more'); if (el) { hasLirePlus = true; moreUrl = el.href; } } catch (e) {}
-                    reviews.push({ filmTitle, reviewText, hasLirePlus, moreUrl });
+                    let filmTitle = "", reviewText = "";
+                    
+                    // Try to get film title from review card
+                    const titleEl = block.querySelector(titleSelector);
+                    filmTitle = titleEl ? titleEl.textContent.trim() : '';
+                    
+                    // Try to get review text - this gets the visible text, truncated or full
+                    const reviewEl = block.querySelector(reviewSelector);
+                    reviewText = reviewEl ? reviewEl.textContent.trim() : '';
+                    
+                    reviews.push({ filmTitle, reviewText });
                 }
                 return reviews;
-            }, SELECTORS.filmReviewBlock);
+            }, SELECTORS.filmReviewBlock, SELECTORS.filmTitleInReview, SELECTORS.filmReview);
         } catch (error) {
             process.stdout.write('\n');
-            console.log(`   ⚠️ Erreur extraction critiques page ${pageNum}: ${error.message}`);
+            console.log(`   \u26a0\ufe0f Erreur extraction critiques page ${pageNum}: ${error.message}`);
         }
 
         if (pageReviews.length === 0) break;
 
         for (let reviewData of pageReviews) {
-            let { filmTitle, reviewText, hasLirePlus, moreUrl } = reviewData;
-
-            if (hasLirePlus && moreUrl) {
-                try {
-                    const originalUrl = page.url();
-                    await page.goto(moreUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-                    await page.waitForSelector(SELECTORS.filmReview, { timeout: 5000 }).catch(() => {});
-                    reviewText = await page.$eval(SELECTORS.filmReview, el => el.textContent.trim()).catch(() => reviewText);
-                    await page.goto(originalUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-                    await page.waitForSelector(SELECTORS.filmReviewBlock, { timeout: 5000 }).catch(() => {});
-                } catch (e) {
-                    process.stdout.write('\n');
-                    console.log(`   ⚠️ "Lire plus" échoué pour "${filmTitle}": ${e.message}`);
-                }
-            }
-
+            let { filmTitle, reviewText } = reviewData;
+            
             reviews.push({
                 title: filmTitle,
-                review: reviewText.replace(/\n/g, "").replace(/\s+/g, " ").trim()
+                review: reviewText.replace(/\n/g, " ").replace(/\s+/g, " ").trim()
             });
         }
 
@@ -477,18 +454,18 @@ async function scrapeAllReviews(page, profileUrl) {
             await delay(800);
         } catch (e) {
             process.stdout.write('\n');
-            console.log(`   ❌ Erreur pagination critiques: ${e.message}`);
+            console.log(`   \u274c Erreur pagination critiques: ${e.message}`);
             break;
         }
     }
 
     process.stdout.write('\n');
-    console.log(`✅ ${reviews.length} critiques extraites au total`);
+    console.log(`\u2705 ${reviews.length} critiques extraites au total`);
     return reviews;
 }
 
 async function scrapeWishlist(page, profileUrl) {
-    console.log('\n📋 Scraping de la wishlist...');
+    console.log('\n\ud83d\udccb Scraping de la wishlist...');
 
     let url = profileUrl.replace(/\/films\/?$/, "/films/envie-de-voir/");
     let wishlistFilms = [];
@@ -509,7 +486,7 @@ async function scrapeWishlist(page, profileUrl) {
 
         if (totalPages === null) {
             totalPages = await getTotalPages(page);
-            process.stdout.write(`  📊 ${totalPages} page(s) de wishlist détectée(s)\n`);
+            process.stdout.write(`  \ud83d\udcca ${totalPages} page(s) de wishlist détectée(s)\n`);
         }
 
         const films = await page.evaluate((selector) => {
@@ -542,7 +519,7 @@ async function scrapeWishlist(page, profileUrl) {
     }
 
     process.stdout.write('\n');
-    console.log(`✅ ${wishlistFilms.length} films en wishlist`);
+    console.log(`\u2705 ${wishlistFilms.length} films en wishlist`);
     return wishlistFilms;
 }
 
@@ -599,9 +576,9 @@ function displayPlatformInfo() {
     const arch = os.arch();
     const nodeVersion = process.version;
     
-    console.log(`📊 Platform: ${platform} (${arch})`);
-    console.log(`📦 Node.js: ${nodeVersion}`);
-    console.log(`📁 Cache directory: ${getPuppeteerCacheDir()}`);
+    console.log(`\ud83d\udcca Platform: ${platform} (${arch})`);
+    console.log(`\ud83d\udce6 Node.js: ${nodeVersion}`);
+    console.log(`\ud83d\udcc1 Cache directory: ${getPuppeteerCacheDir()}`);
 }
 
 async function askQuestion(query) {
@@ -620,14 +597,14 @@ async function askQuestion(query) {
 
 async function createNewPage(browser) {
     const newPage = await browser.newPage();
-    console.log('🔄 Nouvelle page créée (frame détaché détecté)');
+    console.log('\ud83d\udd04 Nouvelle page créée (frame détaché détecté)');
     return newPage;
 }
 
 async function main() {
     console.log('');
-    console.log('  🎬  Allocine2Letterboxd');
-    console.log('  ════════════════════════');
+    console.log('  \ud83c\udfac  Allocine2Letterboxd');
+    console.log('  \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550');
     displayPlatformInfo();
     console.log('');
 
@@ -636,20 +613,20 @@ async function main() {
     
     // Normaliser l'URL (ajouter /films/ si manquant)
     url = normalizeUrl(url);
-    console.log(`🔗 URL normalisée: ${url}`);
+    console.log(`\ud83d\udd17 URL normalisée: ${url}`);
     
     if (!isValidAllocineProfileUrl(url)) {
-        console.error('❌ Lien Allociné invalide !');
+        console.error('\u274c Lien Allociné invalide !');
         process.exit(1);
     }
     
-    console.log('⏳ Lancement du navigateur...\n');
+    console.log('\u23f3 Lancement du navigateur...\n');
 
     let browser;
     try {
         browser = await launchBrowser();
     } catch (error) {
-        console.error('❌ Impossible de lancer un navigateur:', error.message);
+        console.error('\u274c Impossible de lancer un navigateur:', error.message);
         console.error('   Essayez : npx puppeteer browsers install chrome');
         process.exit(1);
     }
@@ -667,7 +644,7 @@ async function main() {
             reviews = await scrapeAllReviews(page, url);
         } catch (error) {
             process.stdout.write('\n');
-            console.log(`⚠️  Erreur critiques: ${error.message} — continuation sans critiques`);
+            console.log(`\u26a0\ufe0f  Erreur critiques: ${error.message} \u2014 continuation sans critiques`);
             reviews = [];
         }
 
@@ -676,13 +653,13 @@ async function main() {
             wishlistFilms = await scrapeWishlist(page, url);
             if (wishlistFilms.length) {
                 await exportToCsv('allocine-films-a-voir.csv', ['Title'], wishlistFilms);
-                console.log('💾 Wishlist exportée : allocine-films-a-voir.csv');
+                console.log('\ud83d\udcbe Wishlist exportée : allocine-films-a-voir.csv');
             }
         } catch (error) {
-            console.log(`⚠️  Erreur wishlist: ${error.message}`);
+            console.log(`\u26a0\ufe0f  Erreur wishlist: ${error.message}`);
         }
     } catch (error) {
-        console.log(`⚠️  Erreur scraping: ${error.message}`);
+        console.log(`\u26a0\ufe0f  Erreur scraping: ${error.message}`);
     }
 
     console.log('');
@@ -691,13 +668,13 @@ async function main() {
             ? mergeFilmsAndReviews(films, reviews)
             : films.map(x => ({ Title: x.title, Rating: x.rating, Review: "" }));
         await exportToCsv('allocine-films.csv', ['Title', 'Rating', 'Review'], entries);
-        console.log('💾 Films exportés : allocine-films.csv');
+        console.log('\ud83d\udcbe Films exportés : allocine-films.csv');
     } else {
-        console.log('⚠️  Aucun film trouvé à exporter.');
+        console.log('\u26a0\ufe0f  Aucun film trouvé à exporter.');
     }
 
     await browser.close();
-    console.log('\n🎉 Terminé !');
+    console.log('\n\ud83c\udf89 Terminé !');
 }
 
 main().catch(console.error);
