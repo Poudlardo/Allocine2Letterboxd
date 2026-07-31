@@ -98,7 +98,8 @@ struct Selectors {
 impl Selectors {
     fn new() -> Self {
         Self {
-            film_item: Selector::parse(".card.entity-card-simple.userprofile-entity-card-simple").unwrap(),
+            // Try multiple selectors for film items - from most specific to least specific
+            film_item: Selector::parse(".userprofile-section .card.entity-card-simple.userprofile-entity-card-simple, .section-films .card.entity-card-simple.userprofile-entity-card-simple, .card.entity-card-simple.userprofile-entity-card-simple").unwrap(),
             film_title: Selector::parse(".meta-title.meta-title-link").unwrap(),
             film_rating: Selector::parse(".rating-mdl").unwrap(),
             review_block: Selector::parse(".review-card").unwrap(),
@@ -200,22 +201,8 @@ impl Scraper {
                     // If no films found on this page, we've reached the end
                     if page_films.is_empty() {
                         consecutive_empty_pages += 1;
-                        // Try next page URL anyway
-                        let next_url = self.find_next_page(&document, &current_url);
-                        if let Some(next) = next_url {
-                            current_url = next;
-                            page += 1;
-                        } else {
-                            // Try to construct next page URL manually
-                            if current_url.contains("?page=") {
-                                let base: Vec<&str> = current_url.split("?page=").collect();
-                                current_url = format!("{}?page={}", base[0], page + 1);
-                            } else {
-                                current_url = format!("{}?page={}", current_url, page + 1);
-                            }
-                            page += 1;
-                        }
-                        continue;
+                        // Don't try next page - we've reached the end
+                        break;
                     }
                     
                     consecutive_empty_pages = 0;
@@ -230,7 +217,7 @@ impl Scraper {
                         current_url = next;
                         page += 1;
                     } else {
-                        // Try to construct next page URL manually
+                        // No next page link found, try to construct next page URL manually
                         if current_url.contains("?page=") {
                             let base: Vec<&str> = current_url.split("?page=").collect();
                             current_url = format!("{}?page={}", base[0], page + 1);
@@ -264,29 +251,42 @@ impl Scraper {
     fn extract_films(&self, document: &Html) -> Vec<Film> {
         let mut films = Vec::new();
         
-        // Primary selector
-        for el in document.select(&self.selectors.film_item) {
-            let title = el.select(&self.selectors.film_title)
-                .next()
-                .and_then(|t| t.value().attr("title").map(|s| s.to_string()))
-                .or_else(|| {
-                    el.select(&self.selectors.film_title)
-                        .next()
-                        .map(|t| strip_html_tags(&t.inner_html()).trim().to_string())
-                });
-            
-            let rating = el.select(&self.selectors.film_rating)
-                .next()
-                .and_then(|r| r.value().attr("class"))
-                .and_then(|c| {
-                    let re = Regex::new(r"n(\d{2})").unwrap();
-                    re.captures(c).and_then(|cap| cap.get(1)).map(|m| m.as_str())
-                })
-                .map(|s| format!("{}.{}", &s[0..1], &s[1..2]))
-                .unwrap_or_default();
+        // Primary selector - try multiple selectors
+        let film_selectors = vec![
+            Selector::parse(".userprofile-section .card.entity-card-simple.userprofile-entity-card-simple").unwrap(),
+            Selector::parse(".section-films .card.entity-card-simple.userprofile-entity-card-simple").unwrap(),
+            Selector::parse(".card.entity-card-simple.userprofile-entity-card-simple").unwrap(),
+        ];
+        
+        for selector in &film_selectors {
+            for el in document.select(selector) {
+                let title = el.select(&self.selectors.film_title)
+                    .next()
+                    .and_then(|t| t.value().attr("title").map(|s| s.to_string()))
+                    .or_else(|| {
+                        el.select(&self.selectors.film_title)
+                            .next()
+                            .map(|t| strip_html_tags(&t.inner_html()).trim().to_string())
+                    });
+                
+                let rating = el.select(&self.selectors.film_rating)
+                    .next()
+                    .and_then(|r| r.value().attr("class"))
+                    .and_then(|c| {
+                        let re = Regex::new(r"n(\d{2})").unwrap();
+                        re.captures(c).and_then(|cap| cap.get(1)).map(|m| m.as_str())
+                    })
+                    .map(|s| format!("{}.{}", &s[0..1], &s[1..2]))
+                    .unwrap_or_default();
 
-            if let Some(title) = title {
-                films.push(Film { title, rating });
+                if let Some(title) = title {
+                    films.push(Film { title, rating });
+                }
+            }
+            
+            // If we found films with this selector, stop trying others
+            if !films.is_empty() {
+                break;
             }
         }
         
@@ -358,7 +358,7 @@ impl Scraper {
         }
         
         // If we found pagination, check if there's a next page
-        if max_page > 0 && max_page >= current_page_num {
+        if max_page > 0 {
             // Try to find a link that points to the next page
             for link in document.select(&Selector::parse("a[href*='?page=']").unwrap()) {
                 if let Some(href) = link.value().attr("href") {
@@ -370,22 +370,10 @@ impl Scraper {
                 }
             }
             
-            // If no direct link found, construct it
-            let base = current_url.split("?page=").next().unwrap_or(current_url);
-            return Some(format!("{}?page={}", base, current_page_num + 1));
-        }
-        
-        // If no pagination found, try to find any link with ?page= and higher number
-        for link in document.select(&Selector::parse("a[href*='?page=']").unwrap()) {
-            if let Some(href) = link.value().attr("href") {
-                if let Some(page_num) = extract_page_number_from_href(href) {
-                    if page_num > current_page_num {
-                        return resolve_url(href, current_url);
-                    }
-                } else {
-                    // If we can't parse the page number, just return it as potential next
-                    return resolve_url(href, current_url);
-                }
+            // If no direct link found but max_page > current_page, construct next page
+            if max_page > current_page_num {
+                let base = current_url.split("?page=").next().unwrap_or(current_url);
+                return Some(format!("{}?page={}", base, current_page_num + 1));
             }
         }
         
@@ -428,22 +416,8 @@ impl Scraper {
                     let review_blocks = document.select(&self.selectors.review_block).count();
                     if review_blocks == 0 {
                         consecutive_empty_pages += 1;
-                        // Try next page URL anyway
-                        let next_url = self.find_next_page(&document, &current_url);
-                        if let Some(next) = next_url {
-                            current_url = next;
-                            page += 1;
-                        } else {
-                            // Try to construct next page URL manually
-                            if current_url.contains("?page=") {
-                                let base: Vec<&str> = current_url.split("?page=").collect();
-                                current_url = format!("{}?page={}", base[0], page + 1);
-                            } else {
-                                current_url = format!("{}?page={}", current_url, page + 1);
-                            }
-                            page += 1;
-                        }
-                        continue;
+                        // Don't try next page - we've reached the end
+                        break;
                     }
                     
                     consecutive_empty_pages = 0;
@@ -451,20 +425,8 @@ impl Scraper {
                     
                     if page_reviews.is_empty() {
                         consecutive_empty_pages += 1;
-                        let next_url = self.find_next_page(&document, &current_url);
-                        if let Some(next) = next_url {
-                            current_url = next;
-                            page += 1;
-                        } else {
-                            if current_url.contains("?page=") {
-                                let base: Vec<&str> = current_url.split("?page=").collect();
-                                current_url = format!("{}?page={}", base[0], page + 1);
-                            } else {
-                                current_url = format!("{}?page={}", current_url, page + 1);
-                            }
-                            page += 1;
-                        }
-                        continue;
+                        // Don't try next page - we've reached the end
+                        break;
                     }
                     
                     reviews.extend(page_reviews);
@@ -478,7 +440,7 @@ impl Scraper {
                         current_url = next;
                         page += 1;
                     } else {
-                        // Try to construct next page URL manually
+                        // No next page link found, try to construct next page URL manually
                         if current_url.contains("?page=") {
                             let base: Vec<&str> = current_url.split("?page=").collect();
                             current_url = format!("{}?page={}", base[0], page + 1);
@@ -629,22 +591,8 @@ impl Scraper {
                     let page_items = self.extract_wishlist(&document);
                     if page_items.is_empty() {
                         consecutive_empty_pages += 1;
-                        // Try next page URL anyway
-                        let next_url = self.find_next_page(&document, &current_url);
-                        if let Some(next) = next_url {
-                            current_url = next;
-                            page += 1;
-                        } else {
-                            // Try to construct next page URL manually
-                            if current_url.contains("?page=") {
-                                let base: Vec<&str> = current_url.split("?page=").collect();
-                                current_url = format!("{}?page={}", base[0], page + 1);
-                            } else {
-                                current_url = format!("{}?page={}", current_url, page + 1);
-                            }
-                            page += 1;
-                        }
-                        continue;
+                        // Don't try next page - we've reached the end
+                        break;
                     }
                     
                     consecutive_empty_pages = 0;
@@ -657,7 +605,7 @@ impl Scraper {
                         current_url = next;
                         page += 1;
                     } else {
-                        // Try to construct next page URL manually
+                        // No next page link found, try to construct next page URL manually
                         if current_url.contains("?page=") {
                             let base: Vec<&str> = current_url.split("?page=").collect();
                             current_url = format!("{}?page={}", base[0], page + 1);
@@ -678,19 +626,55 @@ impl Scraper {
     }
 
     fn extract_wishlist(&self, document: &Html) -> Vec<WishlistItem> {
-        document.select(&self.selectors.film_item)
-            .filter_map(|el| {
-                el.select(&self.selectors.film_title)
+        // Use the same selectors as films
+        let film_selectors = vec![
+            Selector::parse(".userprofile-section .card.entity-card-simple.userprofile-entity-card-simple").unwrap(),
+            Selector::parse(".section-films .card.entity-card-simple.userprofile-entity-card-simple").unwrap(),
+            Selector::parse(".card.entity-card-simple.userprofile-entity-card-simple").unwrap(),
+        ];
+        
+        let mut items = Vec::new();
+        for selector in &film_selectors {
+            for el in document.select(selector) {
+                let title = el.select(&self.selectors.film_title)
                     .next()
                     .and_then(|t| t.value().attr("title").map(|s| s.to_string()))
                     .or_else(|| {
                         el.select(&self.selectors.film_title)
                             .next()
                             .map(|t| strip_html_tags(&t.inner_html()).trim().to_string())
-                    })
-                    .map(|title| WishlistItem { title })
-            })
-            .collect()
+                    });
+                
+                if let Some(title) = title {
+                    items.push(WishlistItem { title });
+                }
+            }
+            
+            // If we found items with this selector, stop trying others
+            if !items.is_empty() {
+                break;
+            }
+        }
+        
+        // Fallback
+        if items.is_empty() {
+            for el in document.select(&Selector::parse(".card").unwrap()) {
+                let title = el.select(&Selector::parse(".meta-title-link, [class*=\"title\"]").unwrap())
+                    .next()
+                    .and_then(|t| t.value().attr("title").map(|s| s.to_string()))
+                    .or_else(|| {
+                        el.select(&Selector::parse(".meta-title-link, [class*=\"title\"]").unwrap())
+                            .next()
+                            .map(|t| strip_html_tags(&t.inner_html()).trim().to_string())
+                    });
+                
+                if let Some(title) = title {
+                    items.push(WishlistItem { title });
+                }
+            }
+        }
+        
+        items
     }
 }
 
