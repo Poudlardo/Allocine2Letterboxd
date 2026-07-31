@@ -393,23 +393,51 @@ async function scrapeAllReviews(page, profileUrl) {
             process.stdout.write(`  \ud83d\udcca ${totalPages} page(s) de critiques détectée(s)\n`);
         }
 
+        // First, get all review blocks and check for "Lire plus" links
+        const reviewBlocks = await page.$$(SELECTORS.filmReviewBlock);
+        
+        for (let block of reviewBlocks) {
+            try {
+                // Check if there's a "Lire plus" link in this block
+                const lirePlusLink = await block.$(SELECTORS.filmReviewLirePlus);
+                if (lirePlusLink) {
+                    // Click the "Lire plus" link to expand the review
+                    await lirePlusLink.click();
+                    await delay(500); // Wait for the content to load
+                }
+            } catch (e) {
+                // If clicking fails, continue with what we have
+                console.log(`   \u26a0\ufe0f  Impossible de cliquer sur "Lire plus": ${e.message}`);
+            }
+        }
+
         let pageReviews = [];
         try {
             pageReviews = await page.evaluate((selector, titleSelector, reviewSelector) => {
                 const blocks = document.querySelectorAll(selector);
                 const reviews = [];
+                
                 for (let block of blocks) {
                     let filmTitle = "", reviewText = "";
                     
-                    // Try to get film title from review card
+                    // Get film title from review card
                     const titleEl = block.querySelector(titleSelector);
                     filmTitle = titleEl ? titleEl.textContent.trim() : '';
                     
-                    // Try to get review text - this gets the visible text, truncated or full
+                    // Get review text - should now be full text after clicking "Lire plus"
                     const reviewEl = block.querySelector(reviewSelector);
-                    reviewText = reviewEl ? reviewEl.textContent.trim() : '';
+                    if (reviewEl) {
+                        reviewText = reviewEl.textContent.trim();
+                    }
                     
-                    reviews.push({ filmTitle, reviewText });
+                    // Clean up the review text
+                    reviewText = reviewText.replace(/\s*Lire plus\s*/gi, '').trim();
+                    reviewText = reviewText.replace(/\s+/, ' ');
+                    
+                    // Only add if we have a title
+                    if (filmTitle) {
+                        reviews.push({ filmTitle, reviewText });
+                    }
                 }
                 return reviews;
             }, SELECTORS.filmReviewBlock, SELECTORS.filmTitleInReview, SELECTORS.filmReview);
@@ -523,18 +551,100 @@ async function scrapeWishlist(page, profileUrl) {
     return wishlistFilms;
 }
 
+function normalizeTitleForMatching(title) {
+    if (!title) return '';
+    
+    // Supprimer les notes où qu'elles soient (ex: "Father,3.5" ou "Father 3.5" ou "3.5 Father")
+    // Supprimer les guillemets et espaces en trop
+    // Normaliser les diacritiques et la casse
+    return title
+        .replace(/["']+/g, '') // Supprimer tous les guillemets
+        .replace(/\s+/g, ' ') // Remplacer les espaces multiples par un seul
+        .replace(/,\s*[\d.]+/g, '') // Supprimer les notes comme ",3.5" ou ",5.0"
+        .replace(/[\d.]+\s*$/g, '') // Supprimer les notes à la fin comme "3.5 " ou "5.0"
+        .replace(/^\[.*?\]\s*/g, '') // Supprimer les crochets au début (ex: "[Film] Title")
+        .replace(/\([^)]*\)/g, '') // Supprimer tout ce qui est entre parenthèses (années, etc.)
+        .normalize('NFD')
+        .replace(/\p{Diacritic}/gu, '')
+        .toLowerCase()
+        .trim();
+}
+
+function extractRatingFromTitle(title) {
+    // Extraire la note si présente dans le titre (ex: "Father,3.5" -> "3.5")
+    const match = title.match(/,\s*([\d.]+)\s*$/);
+    return match ? match[1] : null;
+}
+
+function createReviewLookup(reviews) {
+    // Créer une map avec plusieurs clés possibles pour chaque critique
+    const reviewMap = new Map();
+    
+    for (const review of reviews) {
+        if (!review.title) continue;
+        
+        const normalizedTitle = normalizeTitleForMatching(review.title);
+        
+        // Stocker la critique avec sa clé normalisée
+        if (!reviewMap.has(normalizedTitle)) {
+            reviewMap.set(normalizedTitle, review.review);
+        }
+        
+        // aussi stocker avec le titre sans la note (au cas où la note est à un endroit différent)
+        const titleWithoutRating = review.title.replace(/[\d.]+/g, '').replace(/\s+/g, ' ').trim();
+        const normalizedWithoutRating = normalizeTitleForMatching(titleWithoutRating);
+        if (!reviewMap.has(normalizedWithoutRating)) {
+            reviewMap.set(normalizedWithoutRating, review.review);
+        }
+    }
+    
+    return reviewMap;
+}
+
+function findBestMatchingReview(reviewMap, filmTitle) {
+    const normalizedTitle = normalizeTitleForMatching(filmTitle);
+    
+    // Essayer avec le titre normalisé
+    if (reviewMap.has(normalizedTitle)) {
+        return reviewMap.get(normalizedTitle);
+    }
+    
+    // Essayer avec le titre sans note
+    const titleWithoutRating = filmTitle.replace(/[\d.]+/g, '').replace(/\s+/g, ' ').trim();
+    const normalizedWithoutRating = normalizeTitleForMatching(titleWithoutRating);
+    if (reviewMap.has(normalizedWithoutRating)) {
+        return reviewMap.get(normalizedWithoutRating);
+    }
+    
+    // Essayer avec des variantes courantes
+    // Supprimer les articles au début
+    const withoutArticle = filmTitle.replace(/^(le|la|les|un|une|des|du|de|l')\s+/i, '').trim();
+    const normalizedWithoutArticle = normalizeTitleForMatching(withoutArticle);
+    if (reviewMap.has(normalizedWithoutArticle)) {
+        return reviewMap.get(normalizedWithoutArticle);
+    }
+    
+    // Supprimer l'année à la fin (ex: "Film (2023)" -> "Film")
+    const withoutYear = filmTitle.replace(/\s*\(\d{4}\)\s*$/g, '').trim();
+    const normalizedWithoutYear = normalizeTitleForMatching(withoutYear);
+    if (reviewMap.has(normalizedWithoutYear)) {
+        return reviewMap.get(normalizedWithoutYear);
+    }
+    
+    return '';
+}
+
 function mergeFilmsAndReviews(films, reviews) {
-    const revmap = Object.fromEntries(reviews.map(r => {
-        const normalized = r.title.normalize('NFD').replace(/\p{Diacritic}/gu,"").toLowerCase();
-        return [normalized, r.review];
-    }));
+    // Créer une map de recherche optimisée
+    const reviewMap = createReviewLookup(reviews);
 
     return films.map(f => {
-        const baseTitle = f.title.normalize('NFD').replace(/\p{Diacritic}/gu,"").toLowerCase();
+        const reviewText = findBestMatchingReview(reviewMap, f.title);
+        
         return {
             Title: f.title,
             Rating: f.rating,
-            Review: String(revmap[baseTitle] ?? "")
+            Review: String(reviewText ?? "")
         };
     });
 }
@@ -663,11 +773,53 @@ async function main() {
     }
 
     console.log('');
-    if (films.length > 0) {
-        const entries = reviews.length > 0
-            ? mergeFilmsAndReviews(films, reviews)
-            : films.map(x => ({ Title: x.title, Rating: x.rating, Review: "" }));
-        await exportToCsv('allocine-films.csv', ['Title', 'Rating', 'Review'], entries);
+    
+    // Dédupliquer les films (au cas où il y aurait des doublons dans le scraping)
+    const uniqueFilms = [];
+    const seenTitles = new Set();
+    for (const film of films) {
+        const normalized = normalizeTitleForMatching(film.title);
+        if (!seenTitles.has(normalized)) {
+            seenTitles.add(normalized);
+            uniqueFilms.push(film);
+        }
+    }
+    
+    // Dédupliquer les critiques
+    const uniqueReviews = [];
+    const seenReviewTitles = new Set();
+    for (const review of reviews) {
+        const normalized = normalizeTitleForMatching(review.title);
+        if (!seenReviewTitles.has(normalized)) {
+            seenReviewTitles.add(normalized);
+            uniqueReviews.push(review);
+        }
+    }
+    
+    console.log(`\ud83d\udcc3 Films uniques: ${uniqueFilms.length}, Critiques uniques: ${uniqueReviews.length}`);
+    
+    // Vérifier que nous avons le bon nombre de films (entre 1260 et 1296)
+    if (uniqueFilms.length < 1260 || uniqueFilms.length > 1296) {
+        console.warn(`\u26a0\ufe0f  Attention: Nombre de films (${uniqueFilms.length}) en dehors de la plage attendue (1260-1296)`);
+    }
+    
+    if (uniqueFilms.length > 0) {
+        const entries = uniqueReviews.length > 0
+            ? mergeFilmsAndReviews(uniqueFilms, uniqueReviews)
+            : uniqueFilms.map(x => ({ Title: x.title, Rating: x.rating, Review: "" }));
+        
+        // Compter combien de films ont des critiques
+        const withReviews = entries.filter(e => e.Review.trim().length > 0).length;
+        console.log(`\ud83d\udca1 ${withReviews}/${entries.length} films ont des critiques`);
+        
+        // Nettoyer les titres des films (supprimer les notes si présentes)
+        const cleanedEntries = entries.map(entry => ({
+            Title: entry.Title.replace(/,\s*[\d.]+\s*$/i, '').replace(/\s+/g, ' ').trim(),
+            Rating: entry.Rating,
+            Review: entry.Review
+        }));
+        
+        await exportToCsv('allocine-films.csv', ['Title', 'Rating', 'Review'], cleanedEntries);
         console.log('\ud83d\udcbe Films exportés : allocine-films.csv');
     } else {
         console.log('\u26a0\ufe0f  Aucun film trouvé à exporter.');
