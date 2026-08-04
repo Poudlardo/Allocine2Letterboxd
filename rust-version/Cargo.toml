@@ -1,0 +1,57 @@
+[package]
+name = "allocine2letterboxd"
+version = "0.1.0"
+edition = "2021"
+authors = ["Poudlardo"]
+description = "Export Allocine films and reviews to CSV for Letterboxd import"
+
+[dependencies]
+# HTTP client with rustls (pure Rust TLS, no OpenSSL dependency)
+# Using rustls-tls which is compatible with stable Rust
+reqwest = { version = "0.11", features = ["json", "cookies", "gzip", "rustls-tls"], default-features = false }
+
+# HTML parsing
+scraper = "0.12"
+
+# CSV export
+csv = "1.1"
+
+# Serialization for CSV
+serde = { version = "1.0", features = ["derive"] }
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Error handling
+anyhow = "1.0"
+
+# Logging
+log = "0.4"
+env_logger = "0.9"
+
+# CLI argument parsing
+clap = { version = "4.0", features = ["derive"] }
+
+# For URL manipulation
+url = "2.0"
+
+# For text normalization (removing accents)
+unicode-normalization = "0.1"
+
+# For regex matching
+regex = "1.5"
+
+# For base64 encoding (required by rustls)
+base64 = "0.13"
+
+# For byte order (required by rustls)
+byteorder = "1.4"
+
+# For webpki-roots (required by rustls)
+webpki-roots = "0.25"
+
+[profile.release]
+opt-level = 2
+lto = false
+codegen-units = 1
+strip = true
