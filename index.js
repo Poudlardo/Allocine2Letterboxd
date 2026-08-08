@@ -14,8 +14,8 @@ let SELECTORS = {
     filmReviewBlock: '.review-card',
     filmReview: '.content-txt.review-card-content',
     filmReviewLirePlus: '.blue-link.link-more',
-    filmTitleOnReview: 'a.xXx',
-    filmTitleInReview: '.review-card-title a.xXx',
+    filmTitleOnReview: 'a',
+    filmTitleInReview: '.review-card-title a',
     nextPage: '.button.button-md.button-primary-full.button-right',
     nextPageAlt: 'button[title="Page suivante"]',
     pagination: '.pagination-item-holder',
@@ -132,12 +132,12 @@ async function installBrowser(browserName) {
 // Cherche un navigateur installé sur le système (sans Puppeteer)
 function findSystemBrowser() {
     const candidates = os.platform() === 'win32'
-        ? [] // sur Windows on laisse Puppeteer gérer
-        : ['firefox', 'firefox-esr', 'chromium-browser', 'chromium', 'google-chrome', 'google-chrome-stable'];
+        ? ['google-chrome', 'google-chrome-stable', 'msedge', 'firefox', 'firefox-esr'] // sur Windows on laisse Puppeteer gérer
+        : ['google-chrome', 'google-chrome-stable', 'chromium-browser', 'chromium', 'firefox', 'firefox-esr'];
 
     for (const bin of candidates) {
         try {
-            const p = execSync(`which ${bin} 2>/dev/null`, { encoding: 'utf8' }).trim();
+            const p = execSync(os.platform() === 'win32' ? `where ${bin} 2>nul` : `which ${bin} 2>/dev/null`, { encoding: 'utf8' }).trim();
             if (p) return { bin, path: p };
         } catch {}
     }
@@ -182,8 +182,8 @@ async function launchBrowser() {
 
     // ── Étape 2 : navigateurs Puppeteer (téléchargés dans ~/.cache/puppeteer) ──
     const puppeteerCandidates = [
-        { name: 'firefox', launchOpts: { browser: 'firefox', headless: true } },
         { name: 'chrome',  launchOpts: { headless: true } },
+        { name: 'firefox', launchOpts: { browser: 'firefox', headless: true } },
     ];
 
     let missingLibs = false;
@@ -415,9 +415,9 @@ async function scrapeAllReviews(page, profileUrl) {
                 const reviews = [];
                 for (let block of blocks) {
                     let filmTitle = "", reviewText = "", hasLirePlus = false, moreUrl = "";
-                    try { const el = block.querySelector('.review-card-title a.xXx'); filmTitle = el ? el.textContent.trim() : ''; } catch (e) {}
+                    try { const el = block.querySelector('.review-card-title a'); filmTitle = el ? el.textContent.trim() : ''; } catch (e) {}
                     try { const el = block.querySelector('.content-txt.review-card-content'); reviewText = el ? el.textContent.trim() : ''; } catch (e) {}
-                    try { const el = block.querySelector('a.xXx.blue-link.link-more'); if (el) { hasLirePlus = true; moreUrl = el.href; } } catch (e) {}
+                    try { const el = block.querySelector('a.blue-link.link-more'); if (el) { hasLirePlus = true; moreUrl = el.href; } } catch (e) {}
                     reviews.push({ filmTitle, reviewText, hasLirePlus, moreUrl });
                 }
                 return reviews;

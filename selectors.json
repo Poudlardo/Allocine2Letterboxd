@@ -5,9 +5,9 @@
     "filmRating": ".rating-mdl",
     "nextPage": ".button.button-md.button-primary-full.button-right",
     "filmReviewBlock": ".review-card",
-    "filmTitleInReview": ".review-card-title a.xXx",
+    "filmTitleInReview": ".review-card-title a",
     "filmReview": ".content-txt.review-card-content",
-    "lirePlus": "a.xXx"
+    "lirePlus": "a.blue-link.link-more"
   },
   "sampleTitle": null
 }
