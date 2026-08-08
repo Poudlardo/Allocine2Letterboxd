@@ -4,6 +4,7 @@
 use anyhow::Result;
 use clap::Parser;
 use csv::Writer;
+use futures::stream::{self, StreamExt};
 use regex::Regex;
 use reqwest::Client;
 use scraper::{Html, Selector};
@@ -30,21 +31,31 @@ fn strip_html_tags(s: &str) -> String {
 #[command(version = "0.1.0")]
 #[command(about = "Export Allocine films to CSV for Letterboxd")]
 struct Args {
-    #[arg(value_parser = validate_allocine_url)]
+    /// Allocine profile URL (e.g., https://www.allocine.fr/membre-XXXXXX/films/)
+    #[arg(short, long, value_parser = validate_allocine_url)]
     url: String,
 
+    /// Output directory for CSV files
     #[arg(short, long, default_value = ".")]
     output: PathBuf,
 
+    /// Enable verbose logging
     #[arg(short, long)]
     verbose: bool,
 
+    /// Enable debug mode (save HTML pages, detailed logging)
+    #[arg(short = 'D', long)]
+    debug: bool,
+
+    /// Skip scraping reviews
     #[arg(long)]
     skip_reviews: bool,
 
+    /// Skip scraping wishlist
     #[arg(long)]
     skip_wishlist: bool,
 
+    /// Delay between requests in milliseconds (to avoid rate limiting)
     #[arg(short, long, default_value = "1500")]
     delay_ms: u64,
 }
@@ -86,7 +97,6 @@ fn clear_progress() {
 }
 
 struct Selectors {
-    film_item: Selector,
     film_title: Selector,
     film_rating: Selector,
     review_block: Selector,
@@ -98,14 +108,12 @@ struct Selectors {
 impl Selectors {
     fn new() -> Self {
         Self {
-            // Try multiple selectors for film items - from most specific to least specific
-            film_item: Selector::parse(".userprofile-section .card.entity-card-simple.userprofile-entity-card-simple, .section-films .card.entity-card-simple.userprofile-entity-card-simple, .card.entity-card-simple.userprofile-entity-card-simple").unwrap(),
             film_title: Selector::parse(".meta-title.meta-title-link").unwrap(),
             film_rating: Selector::parse(".rating-mdl").unwrap(),
             review_block: Selector::parse(".review-card").unwrap(),
             review_content: Selector::parse(".content-txt.review-card-content").unwrap(),
             review_lire_plus: Selector::parse(".blue-link.link-more").unwrap(),
-            review_title: Selector::parse("a.xXx").unwrap(),
+            review_title: Selector::parse("a[href*='/film-']").unwrap(),
         }
     }
 }
@@ -114,16 +122,36 @@ struct Scraper {
     client: Client,
     selectors: Selectors,
     delay_ms: u64,
+    debug: bool,
+    output_dir: PathBuf,
 }
 
 impl Scraper {
-    fn new(delay_ms: u64) -> Result<Self> {
+    fn new(delay_ms: u64, debug: bool, output_dir: PathBuf) -> Result<Self> {
         let client = Client::builder()
             .cookie_store(true)
             .timeout(Duration::from_secs(60))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .build()?;
-        Ok(Self { client, selectors: Selectors::new(), delay_ms })
+        Ok(Self { client, selectors: Selectors::new(), delay_ms, debug, output_dir })
+    }
+
+    /// Save HTML content to a debug file
+    fn save_debug_html(&self, html: &str, filename: &str) -> Result<()> {
+        if !self.debug {
+            return Ok(());
+        }
+        let path = self.output_dir.join(filename);
+        std::fs::write(&path, html)?;
+        println!("  💾 Debug HTML saved to: {}", path.display());
+        Ok(())
+    }
+
+    /// Log debug information
+    fn debug_log(&self, message: &str) {
+        if self.debug {
+            eprintln!("  🔍 DEBUG: {}", message);
+        }
     }
 
     async fn fetch_page_with_retry(&self, url: &str, max_retries: usize) -> Result<String> {
@@ -176,71 +204,247 @@ impl Scraper {
         self.fetch_page_with_retry(url, 5).await
     }
 
+    /// Fetch full review content from a "Lire plus" dedicated page
+    async fn fetch_full_review_content(&self, url: &str) -> Result<String> {
+        // Add delay before fetching to avoid rate limiting
+        if self.delay_ms > 0 {
+            sleep(Duration::from_millis(self.delay_ms)).await;
+        }
+        
+        let html = self.fetch_page(url).await?;
+        let document = Html::parse_document(&html);
+        document.select(&self.selectors.review_content)
+            .next()
+            .map(|c| c.inner_html().trim().to_string())
+            .ok_or_else(|| anyhow::anyhow!("Review content not found in full page"))
+    }
+
+    /// Extract the total number of pages from pagination links in HTML
+    /// Uses multiple strategies to find the last page number, ordered by reliability.
+    fn extract_total_pages(&self, html: &str) -> usize {
+        let document = Html::parse_document(html);
+        let mut max_page: usize = 0;
+        
+        if self.debug {
+            eprintln!("\n  ===== Page Detection Debug =====");
+        }
+
+        // Strategy 1: Look for pagination container div.pagination-item-holder
+        // The last <a> child contains the last page number
+        if max_page == 0 {
+            if let Some(pagination_div) = document.select(&Selector::parse("div.pagination-item-holder").unwrap()).next() {
+                if let Some(last_link) = pagination_div.select(&Selector::parse("a").unwrap()).last() {
+                    if let Some(href) = last_link.value().attr("href") {
+                        if let Some(page_num) = extract_page_number_from_href(href) {
+                            max_page = page_num;
+                            self.debug_log(&format!("Strategy 1 (div.pagination-item-holder): found page {}", page_num));
+                        }
+                    }
+                    // Also try text content as fallback
+                    if max_page == 0 {
+                        let html_text = last_link.inner_html();
+                        let text = html_text.trim();
+                        if let Ok(num) = text.parse::<usize>() {
+                            max_page = num;
+                            self.debug_log(&format!("Strategy 1 (text content): found page {}", num));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Strategy 2: Look for <a> immediately after <span class="button">
+        // Based on user observation: <span class="button">...</span><a ...>36</a>
+        if max_page == 0 {
+            for link in document.select(&Selector::parse("span.button + a").unwrap()) {
+                // Try href first
+                if let Some(href) = link.value().attr("href") {
+                    if let Some(page_num) = extract_page_number_from_href(href) {
+                        if page_num > max_page {
+                            max_page = page_num;
+                            self.debug_log(&format!("Strategy 2 (span.button + a href): found page {}", page_num));
+                        }
+                    }
+                }
+                // Try text content
+                if max_page == 0 {
+                    let html_text = link.inner_html();
+                    let text = html_text.trim();
+                    if let Ok(num) = text.parse::<usize>() {
+                        max_page = num;
+                        self.debug_log(&format!("Strategy 2 (span.button + a text): found page {}", num));
+                    }
+                }
+            }
+        }
+
+        // Strategy 3: Look for links with both 'button' and 'item' classes
+        // Based on user observation: <a class="xXx button button-md item" href="?page=36">36</a>
+        if max_page == 0 {
+            for link in document.select(&Selector::parse("a[class*='button'][class*='item']").unwrap()) {
+                if let Some(href) = link.value().attr("href") {
+                    if let Some(page_num) = extract_page_number_from_href(href) {
+                        if page_num > max_page {
+                            max_page = page_num;
+                            self.debug_log(&format!("Strategy 3 (a.button.item href): found page {}", page_num));
+                        }
+                    }
+                }
+                // Also try text content
+                let html_text = link.inner_html();
+                let text = html_text.trim();
+                if let Ok(num) = text.parse::<usize>() {
+                    if num > max_page {
+                        max_page = num;
+                        self.debug_log(&format!("Strategy 3 (a.button.item text): found page {}", num));
+                    }
+                }
+            }
+        }
+
+        // Strategy 4: Look for .pagination a links
+        if max_page == 0 {
+            for link in document.select(&Selector::parse(".pagination a").unwrap()) {
+                if let Some(href) = link.value().attr("href") {
+                    if let Some(page_num) = extract_page_number_from_href(href) {
+                        if page_num > max_page {
+                            max_page = page_num;
+                            self.debug_log(&format!("Strategy 4 (.pagination a href): found page {}", page_num));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Strategy 5: Look for all links with page= or ?page= in href
+        for link in document.select(&Selector::parse("a[href*='page=']").unwrap()) {
+            if let Some(href) = link.value().attr("href") {
+                if let Some(page_num) = extract_page_number_from_href(href) {
+                    if page_num > max_page {
+                        max_page = page_num;
+                        self.debug_log(&format!("Strategy 5 (a[href*='page='] href): found page {}", page_num));
+                    }
+                }
+            }
+        }
+
+        // Strategy 6: Fallback - look for any numeric link in film/critique URLs
+        if max_page == 0 {
+            for link in document.select(&Selector::parse("a[href*='/films/?page='], a[href*='/critiques/films/?page=']").unwrap()) {
+                if let Some(href) = link.value().attr("href") {
+                    if let Some(page_num) = extract_page_number_from_href(href) {
+                        if page_num > max_page {
+                            max_page = page_num;
+                            self.debug_log(&format!("Strategy 6 (fallback href): found page {}", page_num));
+                        }
+                    }
+                }
+            }
+        }
+        
+        if self.debug {
+            if max_page == 0 {
+                eprintln!("  ⚠️  No page number detected by any strategy!");
+            } else {
+                eprintln!("  ✅ Total pages detected: {}", max_page);
+            }
+        }
+
+        max_page
+    }
+
     async fn scrape_films(&self, url: &str) -> Result<Vec<Film>> {
+        let base_url = normalize_url(url);
         let mut films = Vec::new();
-        let mut current_url = normalize_url(url);
+        let mut current_url = base_url.clone();
         let mut visited = HashSet::new();
         let mut page = 1;
         let mut consecutive_errors = 0;
-        let mut consecutive_empty_pages = 0;
+        let mut total_pages: Option<usize> = None;
+        const MAX_PAGES_FALLBACK: usize = 500; // Limite de sécurité
 
         print_progress(films.len(), "Scraping films");
 
         loop {
-            if visited.contains(&current_url) || page > 100 || consecutive_empty_pages >= 2 {
+            // Conditions d'arrêt : URL déjà visitée, limite de sécurité, ou page vide
+            if visited.contains(&current_url) {
                 break;
             }
+            if let Some(tp) = total_pages {
+                if page > tp {
+                    break; // On a dépassé le total de pages détecté
+                }
+            } else if page > MAX_PAGES_FALLBACK {
+                eprintln!("\n⚠️ Limite de sécurité atteinte ({} pages), arrêt du scraping.", MAX_PAGES_FALLBACK);
+                eprintln!("   → Le sélecteur de pagination n'a pas trouvé de nombre total de pages.");
+                break;
+            }
+
             visited.insert(current_url.clone());
 
             match self.fetch_page(&current_url).await {
                 Ok(html) => {
+                    // Save first page HTML for debug analysis
+                    if page == 1 && self.debug {
+                        self.save_debug_html(&html, "debug-page1-films.html")?;
+                    }
+                    
                     let document = Html::parse_document(&html);
+                    
+                    // Détecter le nombre total de pages sur la page 1
+                    if total_pages.is_none() && page == 1 {
+                        let detected_pages = self.extract_total_pages(&html);
+                        self.debug_log(&format!("Extract total pages result: {}", detected_pages));
+                        if detected_pages > 0 {
+                            total_pages = Some(detected_pages);
+                            println!("📊 {} pages de films détectées", detected_pages);
+                        } else {
+                            println!("ℹ️ Nombre total de pages non détecté, utilisation du fallback...");
+                        }
+                    }
                     
                     let page_films = self.extract_films(&document);
                     
-                    // If no films found on this page, we've reached the end
+                    // Si aucun film trouvé sur cette page, on a atteint la fin
                     if page_films.is_empty() {
-                        consecutive_empty_pages += 1;
-                        // Don't try next page - we've reached the end
+                        println!("\nℹ️ Page {} vide, fin du scraping.", page);
                         break;
                     }
                     
-                    consecutive_empty_pages = 0;
                     films.extend(page_films);
                     print_progress(films.len(), "Scraping films");
-                    
                     consecutive_errors = 0;
 
-                    // Find next page - try all methods
+                    // Passer à la page suivante
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
                         current_url = next;
-                        page += 1;
                     } else {
-                        // No next page link found, try to construct next page URL manually
+                        // Construire l'URL manuellement
                         if current_url.contains("?page=") {
                             let base: Vec<&str> = current_url.split("?page=").collect();
                             current_url = format!("{}?page={}", base[0], page + 1);
                         } else {
                             current_url = format!("{}?page={}", current_url, page + 1);
                         }
-                        page += 1;
-                    }
-                }
-                Err(e) => {
-                    eprintln!("\nError on page {}: {}", page, e);
-                    consecutive_errors += 1;
-                    if consecutive_errors >= 2 {
-                        eprintln!("Too many consecutive errors, stopping");
-                        break;
                     }
                     page += 1;
+                }
+                Err(e) => {
+                    eprintln!("\n❌ Erreur sur la page {}: {}", page, e);
+                    consecutive_errors += 1;
+                    if consecutive_errors >= 2 {
+                        eprintln!("Trop d'erreurs consécutives, arrêt.");
+                        break;
+                    }
+                    // Essayer la page suivante
                     if current_url.contains("?page=") {
                         let base: Vec<&str> = current_url.split("?page=").collect();
-                        current_url = format!("{}?page={}", base[0], page);
+                        current_url = format!("{}?page={}", base[0], page + 1);
                     } else {
-                        current_url = format!("{}?page={}", current_url, page);
+                        current_url = format!("{}?page={}", current_url, page + 1);
                     }
+                    page += 1;
                 }
             }
         }
@@ -398,34 +602,60 @@ impl Scraper {
         let mut visited = HashSet::new();
         let mut page = 1;
         let mut consecutive_errors = 0;
-        let mut consecutive_empty_pages = 0;
+        let mut total_pages: Option<usize> = None;
+        const MAX_PAGES_FALLBACK: usize = 500;
 
         print_progress(reviews.len(), "Scraping reviews");
 
         loop {
-            if visited.contains(&current_url) || page > 100 || consecutive_empty_pages >= 2 {
+            // Conditions d'arret : URL deja visitee, limite de securite, ou page vide
+            if visited.contains(&current_url) {
                 break;
             }
+            if let Some(tp) = total_pages {
+                if page > tp {
+                    break;
+                }
+            } else if page > MAX_PAGES_FALLBACK {
+                eprintln!("\n⚠️ Limite de securite atteinte ({} pages), arret du scraping des critiques.", MAX_PAGES_FALLBACK);
+                eprintln!("   → Le selecteur de pagination n'a pas trouve de nombre total de pages.");
+                break;
+            }
+
             visited.insert(current_url.clone());
 
             match self.fetch_page(&current_url).await {
                 Ok(html) => {
+                    // Save first page HTML for debug analysis
+                    if page == 1 && self.debug {
+                        self.save_debug_html(&html, "debug-page1-reviews.html")?;
+                    }
+                    
                     let document = Html::parse_document(&html);
+                    
+                    // Detecter le nombre total de pages sur la page 1
+                    if total_pages.is_none() && page == 1 {
+                        let detected_pages = self.extract_total_pages(&html);
+                        self.debug_log(&format!("Extract total pages result: {}", detected_pages));
+                        if detected_pages > 0 {
+                            total_pages = Some(detected_pages);
+                            println!("📊 {} pages de critiques detectees", detected_pages);
+                        } else {
+                            println!("ℹ️ Nombre total de pages non detecte, utilisation du fallback...");
+                        }
+                    }
                     
                     // Check if there are any review blocks
                     let review_blocks = document.select(&self.selectors.review_block).count();
                     if review_blocks == 0 {
-                        consecutive_empty_pages += 1;
-                        // Don't try next page - we've reached the end
+                        println!("\nℹ️ Page {} vide, fin du scraping des critiques.", page);
                         break;
                     }
                     
-                    consecutive_empty_pages = 0;
                     let page_reviews = self.extract_reviews(&document, &current_url).await?;
                     
                     if page_reviews.is_empty() {
-                        consecutive_empty_pages += 1;
-                        // Don't try next page - we've reached the end
+                        println!("\nℹ️ Page {} vide, fin du scraping des critiques.", page);
                         break;
                     }
                     
@@ -438,7 +668,6 @@ impl Scraper {
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
                         current_url = next;
-                        page += 1;
                     } else {
                         // No next page link found, try to construct next page URL manually
                         if current_url.contains("?page=") {
@@ -447,23 +676,24 @@ impl Scraper {
                         } else {
                             current_url = format!("{}?page={}", current_url, page + 1);
                         }
-                        page += 1;
-                    }
-                }
-                Err(e) => {
-                    eprintln!("\nError fetching reviews page {}: {}", page, e);
-                    consecutive_errors += 1;
-                    if consecutive_errors >= 5 {
-                        eprintln!("Too many consecutive errors, stopping");
-                        break;
                     }
                     page += 1;
+                }
+                Err(e) => {
+                    eprintln!("\n❌ Erreur sur la page {}: {}", page, e);
+                    consecutive_errors += 1;
+                    if consecutive_errors >= 5 {
+                        eprintln!("Trop d'erreurs consecutives, arret.");
+                        break;
+                    }
+                    // Essayer la page suivante
                     if current_url.contains("?page=") {
                         let base: Vec<&str> = current_url.split("?page=").collect();
-                        current_url = format!("{}?page={}", base[0], page);
+                        current_url = format!("{}?page={}", base[0], page + 1);
                     } else {
-                        current_url = format!("{}?page={}", current_url, page);
+                        current_url = format!("{}?page={}", current_url, page + 1);
                     }
+                    page += 1;
                 }
             }
         }
@@ -474,17 +704,16 @@ impl Scraper {
     async fn extract_reviews(&self, document: &Html, base_url: &str) -> Result<Vec<Review>> {
         let mut reviews = Vec::new();
         
+        // Extract film titles and initial review texts from all blocks
+        let mut review_blocks: Vec<(String, String, Option<String>)> = Vec::new();
+        
         for block in document.select(&self.selectors.review_block) {
-            // Extract film title - try to find the movie link in the review card
-            // On Allocine, the review card has a link to the movie with class "xXx"
-            // The title is inside a span with class containing encoded film id
-            
-            // First, try to find a link with href containing /film-
+            // Extract film title
             let mut title = String::new();
+            
             for link in block.select(&Selector::parse("a[href*='/film-']").unwrap()) {
                 if let Some(href) = link.value().attr("href") {
                     if href.contains("/film-") && !href.contains("critique") {
-                        // This is likely the movie link, extract text from it
                         let text = strip_html_tags(&link.inner_html());
                         if !text.is_empty() {
                             title = text;
@@ -494,11 +723,9 @@ impl Scraper {
                 }
             }
             
-            // If no movie link found, try the xXx selector
             if title.is_empty() {
                 for link in block.select(&self.selectors.review_title) {
                     let text = strip_html_tags(&link.inner_html());
-                    // Skip if it's just numbers or empty
                     if !text.is_empty() && !text.chars().all(|c| c.is_numeric() || c.is_whitespace()) {
                         title = text;
                         break;
@@ -506,14 +733,12 @@ impl Scraper {
                 }
             }
             
-            // If still empty, try .review-card-title
             if title.is_empty() {
                 if let Some(el) = block.select(&Selector::parse(".review-card-title").unwrap()).next() {
                     title = strip_html_tags(&el.inner_html());
                 }
             }
             
-            // If still empty, try any link that doesn't look like "Lire plus"
             if title.is_empty() {
                 for link in block.select(&Selector::parse("a").unwrap()) {
                     let text = strip_html_tags(&link.inner_html());
@@ -528,39 +753,50 @@ impl Scraper {
                 title = "UNKNOWN_FILM".to_string();
             }
             
-            // Extract review text
+            // Extract initial review text
             let text = block.select(&self.selectors.review_content)
                 .next()
                 .map(|c| c.inner_html().trim().to_string())
                 .unwrap_or_default();
-
-            // Check for "Lire plus" link
-            let has_more = block.select(&self.selectors.review_lire_plus).next().is_some();
             
-            let full_text = if has_more {
-                if let Some(more_href) = block.select(&self.selectors.review_lire_plus)
-                    .next()
-                    .and_then(|l| l.value().attr("href"))
-                    .and_then(|h| resolve_url(h, base_url)) {
-                    match self.fetch_page(&more_href).await {
-                        Ok(full_html) => {
-                            Html::parse_document(&full_html).select(&self.selectors.review_content)
-                                .next()
-                                .map(|c| c.inner_html().trim().to_string())
-                                .unwrap_or(text)
+            // Check for "Lire plus" link
+            let more_url = block.select(&self.selectors.review_lire_plus)
+                .next()
+                .and_then(|l| l.value().attr("href"))
+                .and_then(|h| resolve_url(h, base_url));
+            
+            review_blocks.push((title, text, more_url));
+        }
+        
+        // Fetch full reviews in parallel for all "Lire plus" links
+        // Limit concurrency to avoid rate limiting - use 3 parallel requests
+        let concurrency_limit = 3;
+        
+        // Clone review_blocks for the stream since it will be consumed
+        let blocks_for_stream = review_blocks.clone();
+        
+        let full_texts: Vec<String> = stream::iter(blocks_for_stream)
+            .map(|(title, text, more_url)| async move {
+                if let Some(url) = more_url {
+                    // Try to fetch full review
+                    match self.fetch_full_review_content(&url).await {
+                        Ok(full_text) => full_text,
+                        Err(e) => {
+                            eprintln!("  ⚠️ Failed to fetch full review for '{}': {}", title, e);
+                            text
                         }
-                        Err(_) => text,
                     }
                 } else {
                     text
                 }
-            } else {
-                text
-            };
-
-            // Clean up text like JS version
+            })
+            .buffer_unordered(concurrency_limit)
+            .collect()
+            .await;
+        
+        // Pair full texts with titles and create reviews
+        for ((title, _, _), full_text) in review_blocks.into_iter().zip(full_texts) {
             let cleaned_text = strip_html_tags(&full_text);
-
             reviews.push(Review { title, review: cleaned_text });
         }
         
@@ -574,28 +810,55 @@ impl Scraper {
         let mut current_url = wishlist_url;
         let mut visited = HashSet::new();
         let mut page = 1;
-        let mut consecutive_empty_pages = 0;
+        let mut total_pages: Option<usize> = None;
+        const MAX_PAGES_FALLBACK: usize = 500;
 
         print_progress(items.len(), "Scraping wishlist");
 
         loop {
-            if visited.contains(&current_url) || page > 100 || consecutive_empty_pages >= 2 {
+            // Conditions d'arret : URL deja visitee ou limite de securite
+            if visited.contains(&current_url) {
                 break;
             }
+            if let Some(tp) = total_pages {
+                if page > tp {
+                    break;
+                }
+            } else if page > MAX_PAGES_FALLBACK {
+                eprintln!("\n⚠️ Limite de securite atteinte ({} pages), arret du scraping de la wishlist.", MAX_PAGES_FALLBACK);
+                eprintln!("   → Le selecteur de pagination n'a pas trouve de nombre total de pages.");
+                break;
+            }
+
             visited.insert(current_url.clone());
 
             match self.fetch_page(&current_url).await {
                 Ok(html) => {
+                    // Save first page HTML for debug analysis
+                    if page == 1 && self.debug {
+                        self.save_debug_html(&html, "debug-page1-wishlist.html")?;
+                    }
+                    
                     let document = Html::parse_document(&html);
+                    
+                    // Detecter le nombre total de pages sur la page 1
+                    if total_pages.is_none() && page == 1 {
+                        let detected_pages = self.extract_total_pages(&html);
+                        self.debug_log(&format!("Extract total pages result: {}", detected_pages));
+                        if detected_pages > 0 {
+                            total_pages = Some(detected_pages);
+                            println!("📊 {} pages de wishlist detectees", detected_pages);
+                        } else {
+                            println!("ℹ️ Nombre total de pages non detecte, utilisation du fallback...");
+                        }
+                    }
                     
                     let page_items = self.extract_wishlist(&document);
                     if page_items.is_empty() {
-                        consecutive_empty_pages += 1;
-                        // Don't try next page - we've reached the end
+                        println!("\nℹ️ Page {} vide, fin du scraping de la wishlist.", page);
                         break;
                     }
                     
-                    consecutive_empty_pages = 0;
                     items.extend(page_items);
                     print_progress(items.len(), "Scraping wishlist");
 
@@ -603,7 +866,6 @@ impl Scraper {
                     let next_url = self.find_next_page(&document, &current_url);
                     if let Some(next) = next_url {
                         current_url = next;
-                        page += 1;
                     } else {
                         // No next page link found, try to construct next page URL manually
                         if current_url.contains("?page=") {
@@ -612,11 +874,11 @@ impl Scraper {
                         } else {
                             current_url = format!("{}?page={}", current_url, page + 1);
                         }
-                        page += 1;
                     }
+                    page += 1;
                 }
                 Err(e) => {
-                    eprintln!("\nError fetching wishlist page {}: {}", page, e);
+                    eprintln!("\n❌ Erreur sur la page {}: {}", page, e);
                     break;
                 }
             }
@@ -796,7 +1058,11 @@ async fn main() -> Result<()> {
         std::fs::create_dir_all(&args.output)?;
     }
 
-    let scraper = Scraper::new(args.delay_ms)?;
+    let scraper = Scraper::new(args.delay_ms, args.debug, args.output.clone())?;
+    
+    if args.debug {
+        println!("🐛 Debug mode enabled - HTML pages will be saved for analysis");
+    }
 
     // Scrape films
     println!("Scraping films...");
