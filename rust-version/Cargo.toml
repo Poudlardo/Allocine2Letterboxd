@@ -41,6 +41,9 @@ unicode-normalization = "0.1"
 # For regex matching
 regex = "1.5"
 
+# For async streams and parallel fetching
+futures = "0.3"
+
 # For base64 encoding (required by rustls)
 base64 = "0.13"
 
