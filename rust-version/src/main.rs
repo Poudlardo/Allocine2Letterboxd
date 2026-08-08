@@ -230,23 +230,50 @@ impl Scraper {
         }
 
         // Strategy 1: Look for pagination container div.pagination-item-holder
-        // The last <a> child contains the last page number
+        // The last element with button and item classes contains the last page number
         if max_page == 0 {
             if let Some(pagination_div) = document.select(&Selector::parse("div.pagination-item-holder").unwrap()).next() {
-                if let Some(last_link) = pagination_div.select(&Selector::parse("a").unwrap()).last() {
-                    if let Some(href) = last_link.value().attr("href") {
-                        if let Some(page_num) = extract_page_number_from_href(href) {
-                            max_page = page_num;
-                            self.debug_log(&format!("Strategy 1 (div.pagination-item-holder): found page {}", page_num));
+                // Collect all elements with button and item classes (both a and span)
+                let page_elements: Vec<_> = pagination_div.select(&Selector::parse("a[class*='button'][class*='item'], span[class*='button'][class*='item']").unwrap()).collect();
+                
+                if !page_elements.is_empty() {
+                    // Get the last element
+                    if let Some(last_elem) = page_elements.last() {
+                        // Try href first (for <a> tags)
+                        if let Some(href) = last_elem.value().attr("href") {
+                            if let Some(page_num) = extract_page_number_from_href(href) {
+                                max_page = page_num;
+                                self.debug_log(&format!("Strategy 1 (div.pagination-item-holder button.item href): found page {}", page_num));
+                            }
+                        }
+                        // Try text content as fallback (works for both <a> and <span>)
+                        if max_page == 0 {
+                            let html_text = last_elem.inner_html();
+                            let text = html_text.trim();
+                            if let Ok(num) = text.parse::<usize>() {
+                                max_page = num;
+                                self.debug_log(&format!("Strategy 1 (div.pagination-item-holder button.item text): found page {}", num));
+                            }
                         }
                     }
-                    // Also try text content as fallback
-                    if max_page == 0 {
-                        let html_text = last_link.inner_html();
-                        let text = html_text.trim();
-                        if let Ok(num) = text.parse::<usize>() {
-                            max_page = num;
-                            self.debug_log(&format!("Strategy 1 (text content): found page {}", num));
+                }
+                
+                // Fallback: try last <a> child
+                if max_page == 0 {
+                    if let Some(last_link) = pagination_div.select(&Selector::parse("a").unwrap()).last() {
+                        if let Some(href) = last_link.value().attr("href") {
+                            if let Some(page_num) = extract_page_number_from_href(href) {
+                                max_page = page_num;
+                                self.debug_log(&format!("Strategy 1 (div.pagination-item-holder last a): found page {}", page_num));
+                            }
+                        }
+                        if max_page == 0 {
+                            let html_text = last_link.inner_html();
+                            let text = html_text.trim();
+                            if let Ok(num) = text.parse::<usize>() {
+                                max_page = num;
+                                self.debug_log(&format!("Strategy 1 (div.pagination-item-holder last a text): found page {}", num));
+                            }
                         }
                     }
                 }
@@ -278,10 +305,11 @@ impl Scraper {
             }
         }
 
-        // Strategy 3: Look for links with both 'button' and 'item' classes
+        // Strategy 3: Look for links and spans with both 'button' and 'item' classes
         // Based on user observation: <a class="xXx button button-md item" href="?page=36">36</a>
+        // or <span class="... button button-md item">36</span>
         if max_page == 0 {
-            for link in document.select(&Selector::parse("a[class*='button'][class*='item']").unwrap()) {
+            for link in document.select(&Selector::parse("a[class*='button'][class*='item'], span[class*='button'][class*='item']").unwrap()) {
                 if let Some(href) = link.value().attr("href") {
                     if let Some(page_num) = extract_page_number_from_href(href) {
                         if page_num > max_page {
