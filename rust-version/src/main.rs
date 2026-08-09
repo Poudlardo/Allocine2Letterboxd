@@ -3,7 +3,7 @@
 
 use anyhow::Result;
 use clap::Parser;
-use csv::Writer;
+use csv::WriterBuilder;
 use futures::stream::{self, StreamExt};
 use regex::Regex;
 use reqwest::Client;
@@ -878,6 +878,17 @@ impl Scraper {
                             println!("📊 {} pages de wishlist detectees", detected_pages);
                         } else {
                             println!("ℹ️ Nombre total de pages non detecte, utilisation du fallback...");
+                            // If no pagination detected, check if there are any items on this page
+                            let page_items = self.extract_wishlist(&document);
+                            if page_items.is_empty() {
+                                // No pagination and no items = user has no wishlist
+                                println!("⚠️ Aucune envie de voir trouvee (wishlist vide ou desactivee)");
+                                break;
+                            } else {
+                                // No pagination but items exist = single page
+                                total_pages = Some(1);
+                                println!("⚠️ Nombre total de pages non detecte, mais des elements trouves - 1 page supposee");
+                            }
                         }
                     }
                     
@@ -1126,8 +1137,9 @@ async fn main() -> Result<()> {
         };
         
         let path = args.output.join("allocine-films.csv");
-        let mut writer = Writer::from_writer(File::create(&path)?);
-        writer.serialize(ExportEntry { title: "Title".into(), rating: "Rating".into(), review: "Review".into() })?;
+        let mut writer = WriterBuilder::new().has_headers(false).from_writer(File::create(&path)?);
+        // Write header manually to avoid duplicate
+        writer.write_record(&["Title", "Rating", "Review"])?;
         for entry in &entries {
             writer.serialize(entry)?;
         }
@@ -1138,8 +1150,9 @@ async fn main() -> Result<()> {
     // Export wishlist
     if !wishlist.is_empty() {
         let path = args.output.join("allocine-films-a-voir.csv");
-        let mut writer = Writer::from_writer(File::create(&path)?);
-        writer.serialize(WishlistItem { title: "Title".into() })?;
+        let mut writer = WriterBuilder::new().has_headers(false).from_writer(File::create(&path)?);
+        // Write header manually to avoid duplicate
+        writer.write_record(&["Title"])?;
         for item in &wishlist {
             writer.serialize(item)?;
         }
