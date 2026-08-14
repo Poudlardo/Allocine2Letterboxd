@@ -78,7 +78,23 @@ if (Test-Path (Join-Path $INSTALL_DIR ".git")) {
 # ── Dependances npm ───────────────────────────────────────────────────────────
 Write-Step "Installation des dependances"
 Set-Location $INSTALL_DIR
-npm.cmd install --silent
+
+# Par defaut on utilise npm ; mais sur les systemes dont l'ExecutionPolicy
+# bloque les scripts .ps1 (Restricted, ou AllSigned sans signature), le shim
+# npm.ps1 ne se charge pas -> PSSecurityException. On bascule alors sur
+# npm.cmd (batch, non soumis a l'ExecutionPolicy) pour rester fonctionnel
+# meme sans droits administrateur.
+$npmExe = "npm"
+try {
+    $policy = Get-ExecutionPolicy -Scope Effective
+} catch {
+    $policy = Get-ExecutionPolicy
+}
+if ($policy -eq "Restricted" -or $policy -eq "AllSigned") {
+    Write-Warn "ExecutionPolicy = $policy : utilisation de npm.cmd pour contourner le blocage des scripts .ps1"
+    $npmExe = "npm.cmd"
+}
+& $npmExe install --silent
 Write-Ok "Dependances installees"
 
 # ── Lancement ─────────────────────────────────────────────────────────────────
