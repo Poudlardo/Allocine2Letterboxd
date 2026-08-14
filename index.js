@@ -576,18 +576,21 @@ function isValidAllocineProfileUrl(url) {
 }
 
 function normalizeUrl(url) {
-    // Si l'URL ne contient pas /films/ à la fin, l'ajouter
-    if (!url.endsWith('/films/') && !url.endsWith('/films')) {
-        // Retirer tout ce qui suit /membre-XXXXX/ si présent
-        let base = url.replace(/\/membre-\w+\/.*$/, '/membre-');
-        // Extraire le membre ID
-        const match = url.match(/\/membre-([A-Z0-9]+)/i);
-        if (match) {
-            base = `https://www.allocine.fr/membre-${match[1]}/`;
-        }
-        url = base + 'films/';
+    // L'utilisateur peut fournir n'importe quelle sous-page de son profil
+    // (racine, /films/, /critiques/films/, /films/envie-de-voir/, ...). On
+    // extrait systematiquement l'ID membre et on reconstruit l'URL racine
+    // /films/ attendue par le reste du scraping. Sans cela, un sous-chemin
+    // comme /critiques/films/ reste en place et les replace(/\/films\/?$/, ...)
+    // produisent des URLs dupliquees (ex. /critiques/critiques/films/).
+    const match = url.match(/\/membre-([A-Z0-9]+)/i);
+    if (match) {
+        return `https://www.allocine.fr/membre-${match[1]}/films/`;
     }
-    // S'assurer que l'URL se termine par /films/
+    // Fallback : si aucun ID membre n'est detecte, on s'assure juste d'un
+    // /films/ final pour limiter la casse.
+    if (!url.endsWith('/films/') && !url.endsWith('/films')) {
+        url = url.replace(/\/$/, '') + '/films/';
+    }
     if (!url.endsWith('/films/')) {
         url = url.replace(/\/films$/, '/films/');
     }
