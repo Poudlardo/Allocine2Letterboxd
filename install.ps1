@@ -78,7 +78,7 @@ if (Test-Path (Join-Path $INSTALL_DIR ".git")) {
 # ── Dependances npm ───────────────────────────────────────────────────────────
 Write-Step "Installation des dependances"
 Set-Location $INSTALL_DIR
-npm install --silent
+npm.cmd install --silent
 Write-Ok "Dependances installees"
 
 # ── Lancement ─────────────────────────────────────────────────────────────────
