@@ -387,7 +387,15 @@ impl Scraper {
     }
 
     async fn scrape_films(&self, url: &str) -> Result<Vec<Film>> {
-        let base_url = normalize_url(url);
+        // Extract member ID and always use the /films/ URL, even if the input
+        // was a /critiques/films/ URL
+        let member_id = Regex::new(r"membre-([A-Z0-9]+)")
+            .unwrap()
+            .captures(url)
+            .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+            .ok_or_else(|| anyhow::anyhow!("Could not extract member ID from URL"))?;
+
+        let base_url = format!("https://www.allocine.fr/membre-{}/films/", member_id);
         let mut films = Vec::new();
         let mut current_url = base_url.clone();
         let mut visited = HashSet::new();
