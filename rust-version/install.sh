@@ -16,12 +16,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Print header
-echo "  A2L"
-echo ""
-echo "        Allocine2Letterboxd - Rust Version"
-echo "  High-performance scraper for Allocine profiles"
-echo ""
 
 # Ask for URL - this is the critical part
 if [ -t 0 ]; then
