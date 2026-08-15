@@ -623,7 +623,7 @@ impl Scraper {
         } else if url.ends_with('/') {
             format!("{}critiques/films/", url)
         } else {
-            format!("{}//critiques/films/", url)
+            format!("{}/critiques/films/", url)
         };
         
         let mut current_url = reviews_url;
