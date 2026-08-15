@@ -188,7 +188,12 @@ impl Scraper {
                 sleep(Duration::from_millis(wait_time)).await;
                 continue;
             }
-            
+
+            // 404 is not transient — don't retry, return immediately
+            if response.status() == reqwest::StatusCode::NOT_FOUND {
+                return Err(anyhow::anyhow!("HTTP 404 Not Found: {}", url));
+            }
+
             if attempt < max_retries {
                 eprintln!("  HTTP {} on {}, retrying...", response.status(), url);
                 sleep(Duration::from_millis(self.delay_ms * 2)).await;
@@ -842,8 +847,18 @@ impl Scraper {
 
     async fn scrape_wishlist(&self, url: &str) -> Result<Vec<WishlistItem>> {
         let mut items = Vec::new();
-        let base_url = normalize_url(url);
-        let wishlist_url = base_url.replace("/films/", "/films/envie-de-voir/");
+
+        // Extract member ID and build the correct wishlist URL
+        let member_id = Regex::new(r"membre-([A-Z0-9]+)")
+            .unwrap()
+            .captures(url)
+            .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+            .ok_or_else(|| anyhow::anyhow!("Could not extract member ID from URL"))?;
+
+        let wishlist_url = format!(
+            "https://www.allocine.fr/membre-{}/films/envie-de-voir/",
+            member_id
+        );
         let mut current_url = wishlist_url;
         let mut visited = HashSet::new();
         let mut page = 1;
@@ -926,7 +941,11 @@ impl Scraper {
                     page += 1;
                 }
                 Err(e) => {
-                    eprintln!("\n❌ Erreur sur la page {}: {}", page, e);
+                    if page == 1 && e.to_string().contains("404") {
+                        println!("\nℹ️ Aucune envie de voir trouvée (wishlist vide ou désactivée)");
+                    } else {
+                        eprintln!("\n❌ Erreur sur la page {}: {}", page, e);
+                    }
                     break;
                 }
             }
