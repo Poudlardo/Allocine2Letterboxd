@@ -22,12 +22,25 @@ A high-performance Rust implementation for scraping Allocine profiles and export
 
 ## Installation
 
-### Prerequisites
+### Windows (one-liner, no prerequisites)
 
-- [Rust](https://www.rust-lang.org/tools/install) (1.70 or later)
-- Git (optional)
+Open PowerShell and paste:
 
-### Quick Install
+```powershell
+irm https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/vibe/rust-version-a5b8bf/rust-version/install.ps1 | iex
+```
+
+This downloads a prebuilt binary from GitHub Releases, asks for your Allocine profile URL, and runs the scrape. No Rust, Git, or Node.js needed.
+
+### Linux / macOS (one-liner)
+
+```bash
+curl -sSf https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/vibe/rust-version-a5b8bf/rust-version/install.sh | bash
+```
+
+This installs Rust if needed, builds the binary, and runs the scrape.
+
+### Build from source
 
 ```bash
 # Clone the repository
