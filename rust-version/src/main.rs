@@ -22,8 +22,15 @@ fn strip_html_tags(s: &str) -> String {
     // Simple regex to remove HTML tags
     let re = Regex::new(r"<[^>]*>").unwrap();
     let without_tags = re.replace_all(s, "");
-    // Clean up multiple spaces and trim
-    without_tags.replace('\n', " ").replace('\r', " ").replace("  ", " ").trim().to_string()
+    // Remove "Lire plus" link text and trailing dots that Allocine appends
+    // to truncated reviews
+    let cleaned = without_tags.replace('\n', " ").replace('\r', " ");
+    // Remove "... Lire plus" or "...                  Lire plus" artifacts
+    let re_lire = Regex::new(r"\s*\.\.\.\s*Lire plus\s*").unwrap();
+    let cleaned = re_lire.replace_all(&cleaned, "").to_string();
+    let re_lire2 = Regex::new(r"\s*Lire plus\s*$").unwrap();
+    let cleaned = re_lire2.replace_all(&cleaned, "").to_string();
+    cleaned.replace("  ", " ").trim().to_string()
 }
 
 #[derive(Parser, Debug)]
@@ -87,13 +94,70 @@ fn normalize_url(url: &str) -> String {
     url.to_string()
 }
 
-fn print_progress(current: usize, message: &str) {
-    print!("\r{}... {}", message, current);
-    io::stdout().flush().unwrap();
+/// Unified progress bar spanning the entire scrape process.
+/// Shows [=====>     ] 45% — Step 2/4: Scraping reviews
+struct ProgressBar {
+    step: usize,
+    total_steps: usize,
+    step_label: String,
+    current: usize,
+    total: usize,
 }
 
-fn clear_progress() {
-    print!("\r{}\n", " ".repeat(80));
+impl ProgressBar {
+    fn new(total_steps: usize) -> Self {
+        Self {
+            step: 0,
+            total_steps,
+            step_label: String::new(),
+            current: 0,
+            total: 0,
+        }
+    }
+
+    fn start_step(&mut self, step: usize, label: &str, total: usize) {
+        self.step = step;
+        self.step_label = label.to_string();
+        self.current = 0;
+        self.total = total;
+        self.render();
+    }
+
+    fn update(&mut self, current: usize) {
+        self.current = current;
+        self.render();
+    }
+
+    fn set_total(&mut self, total: usize) {
+        self.total = total;
+        self.render();
+    }
+
+    fn render(&self) {
+        let width = 36usize;
+        let pct = if self.total > 0 {
+            (self.current as f64 / self.total as f64).min(1.0)
+        } else {
+            0.0
+        };
+        let filled = (pct * width as f64).round() as usize;
+        let bar: String = "█".repeat(filled) + &"░".repeat(width - filled);
+        let pct_str = format!("{:3}", (pct * 100.0).round() as usize);
+        let suffix = if self.total > 0 {
+            format!("({}/{})", self.current, self.total)
+        } else {
+            format!("({}/?)", self.current)
+        };
+        print!(
+            "\r  [{}] {}% — Step {}/{}: {} {}   ",
+            bar, pct_str, self.step, self.total_steps, self.step_label, suffix
+        );
+        io::stdout().flush().unwrap();
+    }
+
+    fn finish(&self) {
+        println!();
+    }
 }
 
 struct Selectors {
@@ -124,6 +188,7 @@ struct Scraper {
     delay_ms: u64,
     debug: bool,
     output_dir: PathBuf,
+    progress: ProgressBar,
 }
 
 impl Scraper {
@@ -133,7 +198,7 @@ impl Scraper {
             .timeout(Duration::from_secs(60))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .build()?;
-        Ok(Self { client, selectors: Selectors::new(), delay_ms, debug, output_dir })
+        Ok(Self { client, selectors: Selectors::new(), delay_ms, debug, output_dir, progress: ProgressBar::new(4) })
     }
 
     /// Save HTML content to a debug file
@@ -386,7 +451,7 @@ impl Scraper {
         max_page
     }
 
-    async fn scrape_films(&self, url: &str) -> Result<Vec<Film>> {
+    async fn scrape_films(&mut self, url: &str) -> Result<Vec<Film>> {
         // Extract member ID and always use the /films/ URL, even if the input
         // was a /critiques/films/ URL
         let member_id = Regex::new(r"membre-([A-Z0-9]+)")
@@ -404,7 +469,7 @@ impl Scraper {
         let mut total_pages: Option<usize> = None;
         const MAX_PAGES_FALLBACK: usize = 500; // Limite de sécurité
 
-        print_progress(films.len(), "Scraping films");
+        self.progress.start_step(1, "Scraping films", 0);
 
         loop {
             // Conditions d'arrêt : URL déjà visitée, limite de sécurité, ou page vide
@@ -416,7 +481,7 @@ impl Scraper {
                     break; // On a dépassé le total de pages détecté
                 }
             } else if page > MAX_PAGES_FALLBACK {
-                eprintln!("\n⚠️ Limite de sécurité atteinte ({} pages), arrêt du scraping.", MAX_PAGES_FALLBACK);
+                eprintln!("  ⚠️ Safety limit reached ({} pages), stopping.", MAX_PAGES_FALLBACK);
                 eprintln!("   → Le sélecteur de pagination n'a pas trouvé de nombre total de pages.");
                 break;
             }
@@ -438,22 +503,21 @@ impl Scraper {
                         self.debug_log(&format!("Extract total pages result: {}", detected_pages));
                         if detected_pages > 0 {
                             total_pages = Some(detected_pages);
-                            println!("📊 {} pages de films détectées", detected_pages);
+                            self.progress.set_total(detected_pages);
                         } else {
-                            println!("ℹ️ Nombre total de pages non détecté, utilisation du fallback...");
+                            eprintln!("  ℹ️ Page count not detected, using fallback...");
                         }
                     }
-                    
+
                     let page_films = self.extract_films(&document);
                     
                     // Si aucun film trouvé sur cette page, on a atteint la fin
                     if page_films.is_empty() {
-                        println!("\nℹ️ Page {} vide, fin du scraping.", page);
                         break;
                     }
                     
                     films.extend(page_films);
-                    print_progress(films.len(), "Scraping films");
+                    self.progress.update(page);
                     consecutive_errors = 0;
 
                     // Passer à la page suivante
@@ -472,10 +536,10 @@ impl Scraper {
                     page += 1;
                 }
                 Err(e) => {
-                    eprintln!("\n❌ Erreur sur la page {}: {}", page, e);
+                    eprintln!("  ❌ Error on page {}: {}", page, e);
                     consecutive_errors += 1;
                     if consecutive_errors >= 2 {
-                        eprintln!("Trop d'erreurs consécutives, arrêt.");
+                        eprintln!("  Too many consecutive errors, stopping.");
                         break;
                     }
                     // Essayer la page suivante
@@ -489,7 +553,7 @@ impl Scraper {
                 }
             }
         }
-        clear_progress();
+        self.progress.finish();
         Ok(films)
     }
 
@@ -625,7 +689,7 @@ impl Scraper {
         None
     }
 
-    async fn scrape_reviews(&self, url: &str) -> Result<Vec<Review>> {
+    async fn scrape_reviews(&mut self, url: &str) -> Result<Vec<Review>> {
         let mut reviews = Vec::new();
         
         // Construct reviews URL: replace /films/ with /critiques/films/
@@ -655,7 +719,7 @@ impl Scraper {
         let mut total_pages: Option<usize> = None;
         const MAX_PAGES_FALLBACK: usize = 500;
 
-        print_progress(reviews.len(), "Scraping reviews");
+        self.progress.start_step(2, "Scraping reviews", 0);
 
         loop {
             // Conditions d'arret : URL deja visitee, limite de securite, ou page vide
@@ -667,7 +731,7 @@ impl Scraper {
                     break;
                 }
             } else if page > MAX_PAGES_FALLBACK {
-                eprintln!("\n⚠️ Limite de securite atteinte ({} pages), arret du scraping des critiques.", MAX_PAGES_FALLBACK);
+                eprintln!("  ⚠️ Safety limit reached ({} pages), stopping reviews scraping.", MAX_PAGES_FALLBACK);
                 eprintln!("   → Le selecteur de pagination n'a pas trouve de nombre total de pages.");
                 break;
             }
@@ -689,28 +753,26 @@ impl Scraper {
                         self.debug_log(&format!("Extract total pages result: {}", detected_pages));
                         if detected_pages > 0 {
                             total_pages = Some(detected_pages);
-                            println!("📊 {} pages de critiques detectees", detected_pages);
+                            self.progress.set_total(detected_pages);
                         } else {
-                            println!("ℹ️ Nombre total de pages non detecte, utilisation du fallback...");
+                            eprintln!("  ℹ️ Page count not detected, using fallback...");
                         }
                     }
                     
                     // Check if there are any review blocks
                     let review_blocks = document.select(&self.selectors.review_block).count();
                     if review_blocks == 0 {
-                        println!("\nℹ️ Page {} vide, fin du scraping des critiques.", page);
                         break;
                     }
                     
                     let page_reviews = self.extract_reviews(&document, &current_url).await?;
                     
                     if page_reviews.is_empty() {
-                        println!("\nℹ️ Page {} vide, fin du scraping des critiques.", page);
                         break;
                     }
                     
                     reviews.extend(page_reviews);
-                    print_progress(reviews.len(), "Scraping reviews");
+                    self.progress.update(page);
                     
                     consecutive_errors = 0;
 
@@ -730,10 +792,10 @@ impl Scraper {
                     page += 1;
                 }
                 Err(e) => {
-                    eprintln!("\n❌ Erreur sur la page {}: {}", page, e);
+                    eprintln!("  ❌ Error on page {}: {}", page, e);
                     consecutive_errors += 1;
                     if consecutive_errors >= 5 {
-                        eprintln!("Trop d'erreurs consecutives, arret.");
+                        eprintln!("  Too many consecutive errors, stopping.");
                         break;
                     }
                     // Essayer la page suivante
@@ -747,7 +809,7 @@ impl Scraper {
                 }
             }
         }
-        clear_progress();
+        self.progress.finish();
         Ok(reviews)
     }
 
@@ -853,7 +915,7 @@ impl Scraper {
         Ok(reviews)
     }
 
-    async fn scrape_wishlist(&self, url: &str) -> Result<Vec<WishlistItem>> {
+    async fn scrape_wishlist(&mut self, url: &str) -> Result<Vec<WishlistItem>> {
         let mut items = Vec::new();
 
         // Extract member ID and build the correct wishlist URL
@@ -873,7 +935,7 @@ impl Scraper {
         let mut total_pages: Option<usize> = None;
         const MAX_PAGES_FALLBACK: usize = 500;
 
-        print_progress(items.len(), "Scraping wishlist");
+        self.progress.start_step(3, "Scraping wishlist", 0);
 
         loop {
             // Conditions d'arret : URL deja visitee ou limite de securite
@@ -885,7 +947,7 @@ impl Scraper {
                     break;
                 }
             } else if page > MAX_PAGES_FALLBACK {
-                eprintln!("\n⚠️ Limite de securite atteinte ({} pages), arret du scraping de la wishlist.", MAX_PAGES_FALLBACK);
+                eprintln!("  ⚠️ Safety limit reached ({} pages), stopping wishlist scraping.", MAX_PAGES_FALLBACK);
                 eprintln!("   → Le selecteur de pagination n'a pas trouve de nombre total de pages.");
                 break;
             }
@@ -907,31 +969,29 @@ impl Scraper {
                         self.debug_log(&format!("Extract total pages result: {}", detected_pages));
                         if detected_pages > 0 {
                             total_pages = Some(detected_pages);
-                            println!("📊 {} pages de wishlist detectees", detected_pages);
+                            self.progress.set_total(detected_pages);
                         } else {
-                            println!("ℹ️ Nombre total de pages non detecte, utilisation du fallback...");
                             // If no pagination detected, check if there are any items on this page
                             let page_items = self.extract_wishlist(&document);
                             if page_items.is_empty() {
                                 // No pagination and no items = user has no wishlist
-                                println!("⚠️ Aucune envie de voir trouvee (wishlist vide ou desactivee)");
+                                eprintln!("  ℹ️ No wishlist found (wishlist is empty or disabled).");
                                 break;
                             } else {
                                 // No pagination but items exist = single page
                                 total_pages = Some(1);
-                                println!("⚠️ Nombre total de pages non detecte, mais des elements trouves - 1 page supposee");
+                                self.progress.set_total(1);
                             }
                         }
                     }
                     
                     let page_items = self.extract_wishlist(&document);
                     if page_items.is_empty() {
-                        println!("\nℹ️ Page {} vide, fin du scraping de la wishlist.", page);
                         break;
                     }
                     
                     items.extend(page_items);
-                    print_progress(items.len(), "Scraping wishlist");
+                    self.progress.update(page);
 
                     // Find next page
                     let next_url = self.find_next_page(&document, &current_url);
@@ -950,15 +1010,16 @@ impl Scraper {
                 }
                 Err(e) => {
                     if page == 1 && e.to_string().contains("404") {
-                        println!("\nℹ️ Aucune envie de voir trouvée (wishlist vide ou désactivée)");
+                        // Wishlist page doesn't exist - user has no wishlist
+                        eprintln!("  ℹ️ No wishlist found (wishlist page does not exist).");
                     } else {
-                        eprintln!("\n❌ Erreur sur la page {}: {}", page, e);
+                        eprintln!("  ❌ Error on page {}: {}", page, e);
                     }
                     break;
                 }
             }
         }
-        clear_progress();
+        self.progress.finish();
         Ok(items)
     }
 
@@ -1085,8 +1146,8 @@ fn merge_data(films: Vec<Film>, reviews: Vec<Review>) -> Vec<ExportEntry> {
         let review = review_map.get(&norm_title).cloned().unwrap_or_default();
         entries.push(ExportEntry {
             title: film.title.clone(),
-            rating: film.rating.clone(),
-            review,
+            rating10: convert_rating(&film.rating),
+            review: clean_review(&review),
         });
     }
     
@@ -1113,8 +1174,37 @@ struct WishlistItem {
 #[derive(Debug, Clone, Serialize)]
 struct ExportEntry {
     title: String,
-    rating: String,
+    #[serde(rename = "Rating10")]
+    rating10: String,
     review: String,
+}
+
+/// Convert a 0.5–5.0 rating (Allocine stars) to Letterboxd's 1–10 scale.
+/// "2.5" → "5", "4.0" → "8", "5.0" → "10", "" → ""
+fn convert_rating(rating: &str) -> String {
+    if rating.is_empty() {
+        return String::new();
+    }
+    if let Ok(r) = rating.parse::<f64>() {
+        let converted = (r * 2.0).round() as i32;
+        return converted.to_string();
+    }
+    rating.to_string()
+}
+
+/// Clean review text: remove "... Lire plus" truncation artifacts
+/// and excessive whitespace.
+fn clean_review(text: &str) -> String {
+    let mut cleaned = text.to_string();
+    // Remove the truncation marker and anything after it
+    // Pattern: "...                  Lire plus" or "... Lire plus"
+    let re = Regex::new(r"\s*\.\.\.\s*Lire plus\s*").unwrap();
+    cleaned = re.replace(&cleaned, "").to_string();
+    // Also handle standalone "... Lire plus" without leading dots
+    let re2 = Regex::new(r"\s*Lire plus\s*$").unwrap();
+    cleaned = re2.replace(&cleaned, "").to_string();
+    // Trim trailing whitespace and dots
+    cleaned.trim().trim_end_matches('.').trim().to_string()
 }
 
 #[tokio::main]
@@ -1133,68 +1223,99 @@ async fn main() -> Result<()> {
         std::fs::create_dir_all(&args.output)?;
     }
 
-    let scraper = Scraper::new(args.delay_ms, args.debug, args.output.clone())?;
+    let mut scraper = Scraper::new(args.delay_ms, args.debug, args.output.clone())?;
     
     if args.debug {
-        println!("🐛 Debug mode enabled - HTML pages will be saved for analysis");
+        println!("Debug mode enabled - HTML pages will be saved for analysis");
     }
 
     // Scrape films
-    println!("Scraping films...");
     let films = scraper.scrape_films(&args.url).await?;
-    println!("Scraped {} films", films.len());
+    println!("  Scraped {} films", films.len());
 
     // Scrape reviews
     let reviews = if args.skip_reviews {
-        println!("Skipping reviews");
         Vec::new()
     } else {
-        println!("Scraping reviews...");
         scraper.scrape_reviews(&args.url).await?
     };
-    println!("Scraped {} reviews", reviews.len());
+    if !args.skip_reviews {
+        println!("  Scraped {} reviews", reviews.len());
+    }
 
     // Scrape wishlist
     let wishlist = if args.skip_wishlist {
-        println!("Skipping wishlist");
         Vec::new()
     } else {
-        println!("Scraping wishlist...");
         scraper.scrape_wishlist(&args.url).await?
     };
-    println!("Scraped {} wishlist items", wishlist.len());
+    if !args.skip_wishlist {
+        println!("  Scraped {} wishlist items", wishlist.len());
+    }
+
+    // Export
+    scraper.progress.start_step(4, "Exporting CSV", 2);
 
     // Export films
     if !films.is_empty() {
         let entries = if !reviews.is_empty() {
             merge_data(films, reviews)
         } else {
-            films.into_iter().map(|f| ExportEntry { title: f.title, rating: f.rating, review: String::new() }).collect()
+            films.into_iter().map(|f| ExportEntry {
+                title: f.title,
+                rating10: convert_rating(&f.rating),
+                review: String::new(),
+            }).collect()
         };
         
         let path = args.output.join("allocine-films.csv");
         let mut writer = WriterBuilder::new().has_headers(false).from_writer(File::create(&path)?);
-        // Write header manually to avoid duplicate
-        writer.write_record(&["Title", "Rating", "Review"])?;
+        writer.write_record(&["Title", "Rating10", "Review"])?;
         for entry in &entries {
             writer.serialize(entry)?;
         }
         writer.flush()?;
-        println!("Exported {} films to {}", entries.len(), path.display());
+        scraper.progress.update(1);
+        println!("\nExported {} films to {}", entries.len(), path.display());
+
+        // Split CSV if too large for Letterboxd's 1MB import limit
+        const MAX_ROWS_PER_FILE: usize = 2500;
+        if entries.len() > MAX_ROWS_PER_FILE {
+            let total_parts = (entries.len() + MAX_ROWS_PER_FILE - 1) / MAX_ROWS_PER_FILE;
+            println!("File has {} rows (exceeds {} row limit). Splitting into {} parts...",
+                     entries.len(), MAX_ROWS_PER_FILE, total_parts);
+
+            for (part_idx, chunk) in entries.chunks(MAX_ROWS_PER_FILE).enumerate() {
+                let part_num = part_idx + 1;
+                let part_path = args.output.join(format!("allocine-films-part{}.csv", part_num));
+                let mut part_writer = WriterBuilder::new().has_headers(false).from_writer(File::create(&part_path)?);
+                part_writer.write_record(&["Title", "Rating10", "Review"])?;
+                for entry in chunk {
+                    part_writer.serialize(entry)?;
+                }
+                part_writer.flush()?;
+                println!("  -> {} ({} rows): {}", part_num, chunk.len(), part_path.display());
+            }
+
+            println!("\nLetterboxd imposes a 1MB file size limit per import.");
+            println!("Import each part separately at https://letterboxd.com/import/import/");
+        }
     }
 
     // Export wishlist
     if !wishlist.is_empty() {
         let path = args.output.join("allocine-films-a-voir.csv");
         let mut writer = WriterBuilder::new().has_headers(false).from_writer(File::create(&path)?);
-        // Write header manually to avoid duplicate
         writer.write_record(&["Title"])?;
         for item in &wishlist {
             writer.serialize(item)?;
         }
         writer.flush()?;
-        println!("Exported {} wishlist items to {}", wishlist.len(), path.display());
+        scraper.progress.update(2);
+        println!("\nExported {} wishlist items to {}", wishlist.len(), path.display());
     }
+
+    scraper.progress.finish();
 
     println!("");
     println!("Done!");
