@@ -32,7 +32,7 @@ fn strip_html_tags(s: &str) -> String {
 #[command(about = "Export Allocine films to CSV for Letterboxd")]
 struct Args {
     /// Allocine profile URL (e.g., https://www.allocine.fr/membre-XXXXXX/films/)
-    #[arg(short, long, value_parser = validate_allocine_url)]
+    #[arg(value_parser = validate_allocine_url)]
     url: String,
 
     /// Output directory for CSV files
@@ -61,7 +61,7 @@ struct Args {
 }
 
 fn validate_allocine_url(url: &str) -> Result<String> {
-    let re = Regex::new(r"^https://www\.allocine\.fr/membre-[A-Z0-9]+(/films/?)?$").unwrap();
+    let re = Regex::new(r"^https://www\.allocine\.fr/membre-[A-Z0-9]+(/films/?|/critiques/films/?)?$").unwrap();
     if re.is_match(url) {
         Ok(url.to_string())
     } else {
@@ -69,19 +69,19 @@ fn validate_allocine_url(url: &str) -> Result<String> {
         if re.is_match(&normalized) {
             Ok(normalized)
         } else {
-            Err(anyhow::anyhow!("Invalid Allocine URL"))
+            Err(anyhow::anyhow!("Invalid Allocine URL. Please provide a URL like: https://www.allocine.fr/membre-XXXXXX/films/ or https://www.allocine.fr/membre-XXXXXX/"))
         }
     }
 }
 
 fn normalize_url(url: &str) -> String {
     let url = url.trim().trim_end_matches('/');
-    if !url.ends_with("/films") && !url.ends_with("/films/") {
+    if !url.ends_with("/films") && !url.ends_with("/films/") && !url.ends_with("/critiques/films") && !url.ends_with("/critiques/films/") {
         if let Some(caps) = Regex::new(r"membre-([A-Z0-9]+)").unwrap().captures(url) {
             return format!("https://www.allocine.fr/membre-{}/films/", &caps[1]);
         }
     }
-    if url.ends_with("/films") {
+    if url.ends_with("/films") || url.ends_with("/critiques/films") {
         return format!("{}/", url);
     }
     url.to_string()
@@ -616,7 +616,16 @@ impl Scraper {
         let mut reviews = Vec::new();
         
         // Construct reviews URL: replace /films/ with /critiques/films/
-        let reviews_url = if url.ends_with("/films/") {
+        // If the URL already contains /critiques/films/, use it as-is
+        let reviews_url = if url.contains("/critiques/films/") || url.contains("/critiques/films") {
+            // Already a reviews URL, just ensure it ends with /
+            let trimmed = url.trim().trim_end_matches('/');
+            if trimmed.ends_with("/critiques/films") {
+                format!("{}/", trimmed)
+            } else {
+                url.to_string()
+            }
+        } else if url.ends_with("/films/") {
             url.replace("/films/", "/critiques/films/")
         } else if url.ends_with("/films") {
             url.replace("/films", "/critiques/films/")
