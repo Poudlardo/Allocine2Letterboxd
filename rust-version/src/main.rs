@@ -155,8 +155,17 @@ impl ProgressBar {
         io::stdout().flush().unwrap();
     }
 
+    fn finish_step(&mut self) {
+        // Clear the progress bar line without adding a new line
+        // so the next step can reuse the same line
+        self.current = self.total;
+        self.render();
+    }
+
     fn finish(&self) {
-        println!();
+        // Clear the bar line
+        print!("\r{}\r", " ".repeat(100));
+        io::stdout().flush().unwrap();
     }
 }
 
@@ -553,7 +562,7 @@ impl Scraper {
                 }
             }
         }
-        self.progress.finish();
+        self.progress.finish_step();
         Ok(films)
     }
 
@@ -809,7 +818,7 @@ impl Scraper {
                 }
             }
         }
-        self.progress.finish();
+        self.progress.finish_step();
         Ok(reviews)
     }
 
@@ -1019,7 +1028,7 @@ impl Scraper {
                 }
             }
         }
-        self.progress.finish();
+        self.progress.finish_step();
         Ok(items)
     }
 
@@ -1231,7 +1240,6 @@ async fn main() -> Result<()> {
 
     // Scrape films
     let films = scraper.scrape_films(&args.url).await?;
-    println!("  Scraped {} films", films.len());
 
     // Scrape reviews
     let reviews = if args.skip_reviews {
@@ -1239,9 +1247,6 @@ async fn main() -> Result<()> {
     } else {
         scraper.scrape_reviews(&args.url).await?
     };
-    if !args.skip_reviews {
-        println!("  Scraped {} reviews", reviews.len());
-    }
 
     // Scrape wishlist
     let wishlist = if args.skip_wishlist {
@@ -1249,14 +1254,14 @@ async fn main() -> Result<()> {
     } else {
         scraper.scrape_wishlist(&args.url).await?
     };
-    if !args.skip_wishlist {
-        println!("  Scraped {} wishlist items", wishlist.len());
-    }
 
     // Export
     scraper.progress.start_step(4, "Exporting CSV", 2);
 
     // Export films
+    let mut films_split = false;
+    let mut films_count = 0;
+    let mut films_parts: Vec<(std::path::PathBuf, usize)> = Vec::new();
     if !films.is_empty() {
         let entries = if !reviews.is_empty() {
             merge_data(films, reviews)
@@ -1267,24 +1272,13 @@ async fn main() -> Result<()> {
                 review: String::new(),
             }).collect()
         };
-        
-        let path = args.output.join("allocine-films.csv");
-        let mut writer = WriterBuilder::new().has_headers(false).from_writer(File::create(&path)?);
-        writer.write_record(&["Title", "Rating10", "Review"])?;
-        for entry in &entries {
-            writer.serialize(entry)?;
-        }
-        writer.flush()?;
-        scraper.progress.update(1);
-        println!("\nExported {} films to {}", entries.len(), path.display());
+        films_count = entries.len();
 
-        // Split CSV if too large for Letterboxd's 1MB import limit
+        // Split into parts if too large for Letterboxd's import limit
         const MAX_ROWS_PER_FILE: usize = 2500;
         if entries.len() > MAX_ROWS_PER_FILE {
+            films_split = true;
             let total_parts = (entries.len() + MAX_ROWS_PER_FILE - 1) / MAX_ROWS_PER_FILE;
-            println!("File has {} rows (exceeds {} row limit). Splitting into {} parts...",
-                     entries.len(), MAX_ROWS_PER_FILE, total_parts);
-
             for (part_idx, chunk) in entries.chunks(MAX_ROWS_PER_FILE).enumerate() {
                 let part_num = part_idx + 1;
                 let part_path = args.output.join(format!("allocine-films-part{}.csv", part_num));
@@ -1294,16 +1288,24 @@ async fn main() -> Result<()> {
                     part_writer.serialize(entry)?;
                 }
                 part_writer.flush()?;
-                println!("  -> {} ({} rows): {}", part_num, chunk.len(), part_path.display());
+                films_parts.push((part_path, chunk.len()));
             }
-
-            println!("\nLetterboxd imposes a 1MB file size limit per import.");
-            println!("Import each part separately at https://letterboxd.com/import/import/");
+            let _ = total_parts; // used for messaging below
+        } else {
+            let path = args.output.join("allocine-films.csv");
+            let mut writer = WriterBuilder::new().has_headers(false).from_writer(File::create(&path)?);
+            writer.write_record(&["Title", "Rating10", "Review"])?;
+            for entry in &entries {
+                writer.serialize(entry)?;
+            }
+            writer.flush()?;
+            films_parts.push((path, entries.len()));
         }
     }
+    scraper.progress.update(1);
 
     // Export wishlist
-    if !wishlist.is_empty() {
+    let wishlist_path = if !wishlist.is_empty() {
         let path = args.output.join("allocine-films-a-voir.csv");
         let mut writer = WriterBuilder::new().has_headers(false).from_writer(File::create(&path)?);
         writer.write_record(&["Title"])?;
@@ -1311,12 +1313,29 @@ async fn main() -> Result<()> {
             writer.serialize(item)?;
         }
         writer.flush()?;
-        scraper.progress.update(2);
-        println!("\nExported {} wishlist items to {}", wishlist.len(), path.display());
-    }
+        Some(path)
+    } else {
+        None
+    };
+    scraper.progress.update(2);
 
+    // Clear the progress bar
     scraper.progress.finish();
 
+    // Print summary
+    println!("  Films: {}", films_count);
+    if films_split {
+        println!("    Split into {} parts (Letterboxd 2500-row limit):", films_parts.len());
+        for (i, (p, n)) in films_parts.iter().enumerate() {
+            println!("      Part {}: {} rows — {}", i + 1, n, p.display());
+        }
+        println!("    Import each part separately at https://letterboxd.com/import/import/");
+    } else if !films_parts.is_empty() {
+        println!("    Exported to {}", films_parts[0].0.display());
+    }
+    if let Some(ref wp) = wishlist_path {
+        println!("  Wishlist: {} items — {}", wishlist.len(), wp.display());
+    }
     println!("");
     println!("Done!");
     Ok(())
