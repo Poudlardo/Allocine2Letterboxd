@@ -121,12 +121,15 @@ ORIGINAL_DIR="${OLDPWD:-$PWD}"
 mkdir -p "$ORIGINAL_DIR" 2>/dev/null
 [ -f allocine-films.csv ] && cp allocine-films.csv "$ORIGINAL_DIR/"
 [ -f allocine-films-a-voir.csv ] && cp allocine-films-a-voir.csv "$ORIGINAL_DIR/"
+for f in allocine-films-part*.csv; do
+    [ -f "$f" ] && cp "$f" "$ORIGINAL_DIR/"
+done
 
 echo ""
 echo "[OK] All done!"
 echo ""
 echo "Next steps:"
 echo "  Import to Letterboxd:"
-echo "    - allocine-films.csv -> https://letterboxd.com/import/"
+echo "    - allocine-films*.csv -> https://letterboxd.com/import/"
 echo "    - allocine-films-a-voir.csv -> https://letterboxd.com/watchlist/"
 echo ""
