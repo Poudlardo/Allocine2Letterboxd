@@ -94,32 +94,48 @@ fn normalize_url(url: &str) -> String {
     url.to_string()
 }
 
-/// Barre de progression unifiée couvrant tout le processus de scraping.
-/// Affiche [=====>     ] 45% — Étape 2/4 : Scraping des critiques
+/// Barre de progression globale couvrant tout le processus.
+/// Une seule barre qui ne redémarre jamais à 0%.
+/// Le pourcentage est calculé sur l'ensemble des étapes pondérées.
 struct ProgressBar {
+    /// Étape actuelle (1-indexed)
     step: usize,
+    /// Nombre total d'étapes
     total_steps: usize,
+    /// Libellé de l'étape actuelle
     step_label: String,
+    /// Progression dans l'étape actuelle
     current: usize,
+    /// Total pour l'étape actuelle (0 = inconnu)
     total: usize,
+    /// Nombre de pages estimé (utilisé avant découverte du vrai total)
+    estimated_total: usize,
+    /// Poids relatif de chaque étape (films=50, reviews=35, wishlist=10, export=5)
+    step_weights: Vec<f64>,
 }
 
 impl ProgressBar {
-    fn new(total_steps: usize) -> Self {
+    fn new() -> Self {
         Self {
             step: 0,
-            total_steps,
+            total_steps: 4,
             step_label: String::new(),
             current: 0,
             total: 0,
+            estimated_total: 0,
+            // Poids: films 50%, reviews 35%, wishlist 10%, export 5%
+            step_weights: vec![50.0, 35.0, 10.0, 5.0],
         }
     }
 
-    fn start_step(&mut self, step: usize, label: &str, total: usize) {
+    /// Démarre une nouvelle étape. `estimated_total` est une estimation
+    /// du nombre de pages (utilisée tant qu'on n'a pas découvert le vrai total).
+    fn start_step(&mut self, step: usize, label: &str, estimated_total: usize) {
         self.step = step;
         self.step_label = label.to_string();
         self.current = 0;
-        self.total = total;
+        self.total = 0; // Inconnu jusqu'à set_total()
+        self.estimated_total = estimated_total;
         self.render();
     }
 
@@ -133,18 +149,39 @@ impl ProgressBar {
         self.render();
     }
 
+    /// Calcule le pourcentage global (0.0 à 1.0) sur toutes les étapes.
+    fn global_pct(&self) -> f64 {
+        let mut pct = 0.0;
+        for i in 0..self.total_steps {
+            let weight = self.step_weights.get(i).copied().unwrap_or(0.0);
+            if i + 1 < self.step {
+                // Étape terminée
+                pct += weight;
+            } else if i + 1 == self.step {
+                // Étape en cours
+                let denom = if self.total > 0 {
+                    self.total
+                } else {
+                    self.estimated_total
+                };
+                if denom > 0 {
+                    pct += weight * (self.current as f64 / denom as f64).min(1.0);
+                }
+            }
+        }
+        pct / 100.0
+    }
+
     fn render(&self) {
         let width = 36usize;
-        let pct = if self.total > 0 {
-            (self.current as f64 / self.total as f64).min(1.0)
-        } else {
-            0.0
-        };
+        let pct = self.global_pct().min(1.0);
         let filled = (pct * width as f64).round() as usize;
         let bar: String = "█".repeat(filled) + &"░".repeat(width - filled);
         let pct_str = format!("{:3}", (pct * 100.0).round() as usize);
         let suffix = if self.total > 0 {
             format!("({}/{})", self.current, self.total)
+        } else if self.estimated_total > 0 {
+            format!("({}/{})", self.current, self.estimated_total)
         } else {
             format!("({}/?)", self.current)
         };
@@ -156,14 +193,11 @@ impl ProgressBar {
     }
 
     fn finish_step(&mut self) {
-        // Clear the progress bar line without adding a new line
-        // so the next step can reuse the same line
-        self.current = self.total;
+        self.current = self.total.max(self.estimated_total);
         self.render();
     }
 
     fn finish(&self) {
-        // Clear the bar line
         print!("\r{}\r", " ".repeat(100));
         io::stdout().flush().unwrap();
     }
@@ -207,7 +241,7 @@ impl Scraper {
             .timeout(Duration::from_secs(60))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .build()?;
-        Ok(Self { client, selectors: Selectors::new(), delay_ms, debug, output_dir, progress: ProgressBar::new(4) })
+        Ok(Self { client, selectors: Selectors::new(), delay_ms, debug, output_dir, progress: ProgressBar::new() })
     }
 
     /// Save HTML content to a debug file
@@ -478,7 +512,7 @@ impl Scraper {
         let mut total_pages: Option<usize> = None;
         const MAX_PAGES_FALLBACK: usize = 500; // Limite de sécurité
 
-        self.progress.start_step(1, "Scraping des films", 0);
+        self.progress.start_step(1, "Scraping des films", 150);
 
         loop {
             // Conditions d'arrêt : URL déjà visitée, limite de sécurité, ou page vide
@@ -728,7 +762,7 @@ impl Scraper {
         let mut total_pages: Option<usize> = None;
         const MAX_PAGES_FALLBACK: usize = 500;
 
-        self.progress.start_step(2, "Scraping des critiques", 0);
+        self.progress.start_step(2, "Scraping des critiques", 120);
 
         loop {
             // Conditions d'arret : URL deja visitee, limite de securite, ou page vide
@@ -944,7 +978,7 @@ impl Scraper {
         let mut total_pages: Option<usize> = None;
         const MAX_PAGES_FALLBACK: usize = 500;
 
-        self.progress.start_step(3, "Scraping de la wishlist", 0);
+        self.progress.start_step(3, "Scraping de la wishlist", 5);
 
         loop {
             // Conditions d'arret : URL deja visitee ou limite de securite
