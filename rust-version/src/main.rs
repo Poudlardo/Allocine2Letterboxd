@@ -1258,10 +1258,6 @@ async fn main() -> Result<()> {
         std::env::set_var("RUST_LOG", "info");
     }
 
-    println!("A2L - Rust Version");
-    println!("===================");
-    println!("");
-
     if !args.output.exists() {
         std::fs::create_dir_all(&args.output)?;
     }
