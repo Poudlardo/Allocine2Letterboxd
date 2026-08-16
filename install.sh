@@ -7,7 +7,7 @@ set -e
 
 # Informations du dépôt
 REPO_URL="https://github.com/Poudlardo/Allocine2Letterboxd.git"
-BRANCH="vibe/rust-version-a5b8bf"
+BRANCH="main"
 TEMP_DIR=""
 
 # Nettoyage

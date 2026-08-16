@@ -1,5 +1,5 @@
 # Allocine2Letterboxd - Installeur Windows
-# Usage: irm https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/vibe/rust-version-a5b8bf/install.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/main/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
 
