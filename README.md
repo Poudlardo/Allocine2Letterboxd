@@ -2,7 +2,9 @@
 
 Exporte ta liste de films vus, notés et critiqués sur AlloCiné vers un fichier CSV prêt à importer sur Letterboxd. La wishlist (films à voir) est également exportée.
 
-## Avant 
+> **Note :** Seuls les films sont supportés pour le moment. Le support des séries et miniséries est en développement — Letterboxd a [annoncé l'ajout des séries](https://collider.com/letterboxd-tv/) sur sa plateforme et intègre déjà [les miniséries](https://letterboxd.com/official/list/top-250-miniseries/) à son catalogue.
+
+## Avant
 
 - Rends-toi sur [Allociné](https://mon.allocine.fr/mes-films/envie-de-voir/) → Profil → garde bien le lien en URL (similaire à https://www.allocine.fr/membre-Z20220820103049710645480/)
 
