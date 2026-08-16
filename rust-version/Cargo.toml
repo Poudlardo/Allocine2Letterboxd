@@ -6,9 +6,9 @@ authors = ["Poudlardo"]
 description = "Export Allocine films and reviews to CSV for Letterboxd import"
 
 [dependencies]
-# HTTP client with rustls (pure Rust TLS, no OpenSSL dependency)
-# Using rustls-tls which is compatible with stable Rust
-reqwest = { version = "0.11", features = ["json", "cookies", "gzip", "rustls-tls"], default-features = false }
+# HTTP client with native-tls (uses system certificate store, important for
+# corporate/proxy environments on Windows where rustls fails with UnknownIssuer)
+reqwest = { version = "0.11", features = ["json", "cookies", "gzip", "native-tls"], default-features = false }
 
 # HTML parsing
 scraper = "0.12"
@@ -43,15 +43,6 @@ regex = "1.5"
 
 # For async streams and parallel fetching
 futures = "0.3"
-
-# For base64 encoding (required by rustls)
-base64 = "0.13"
-
-# For byte order (required by rustls)
-byteorder = "1.4"
-
-# For webpki-roots (required by rustls)
-webpki-roots = "0.25"
 
 [profile.release]
 opt-level = 2
