@@ -47,7 +47,7 @@ echo ""
 echo "[*] Configuration de l'environnement..."
 TEMP_DIR=$(mktemp -d 2>/dev/null || echo "/tmp/a2l-$$")
 git clone --branch "$BRANCH" --depth 1 --quiet "$REPO_URL" "$TEMP_DIR" 2>&1 | grep -v "^hint:" || true
-cd "$TEMP_DIR/rust-version"
+cd "$TEMP_DIR"
 echo "[OK] Dépôt cloné"
 
 # Installation des dépendances système pour Rust (uniquement gcc, rustls est en Rust pur)
