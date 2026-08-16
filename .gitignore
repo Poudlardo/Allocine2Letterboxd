@@ -1,5 +1,6 @@
-node_modules/
-allocine-films-critiques.csv
-allocine-films-a-voir.csv
+/target/
 allocine-films.csv
+allocine-films-part*.csv
+allocine-films-a-voir.csv
 .vscode
+.DS_Store
