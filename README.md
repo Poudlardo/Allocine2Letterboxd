@@ -10,12 +10,12 @@ Exporte ta liste de films vus, notés et critiqués sur AlloCiné vers un fichie
 
 **macOS / Linux**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/vibe/rust-version-a5b8bf/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/main/install.sh | bash
 ```
 
 **Windows**
 ```powershell
-irm https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/vibe/rust-version-a5b8bf/install.ps1 | iex
+irm https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/main/install.ps1 | iex
 ```
 ---
 
