@@ -1,5 +1,23 @@
-node_modules/
-allocine-films-critiques.csv
-allocine-films-a-voir.csv
+# Rust build artifacts
+/target/
+*.rs.bk
+
+# Cargo lock file (can be regenerated)
+Cargo.lock
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Generated files
 allocine-films.csv
-.vscode
+allocine-films-part*.csv
+allocine-films-a-voir.csv
+*csv
+*.html
