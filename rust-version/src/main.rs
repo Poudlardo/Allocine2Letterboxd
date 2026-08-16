@@ -36,33 +36,33 @@ fn strip_html_tags(s: &str) -> String {
 #[derive(Parser, Debug)]
 #[command(name = "allocine2letterboxd")]
 #[command(version = "0.1.0")]
-#[command(about = "Export Allocine films to CSV for Letterboxd")]
+#[command(about = "Export des films Allocine vers un CSV pour Letterboxd")]
 struct Args {
-    /// Allocine profile URL (e.g., https://www.allocine.fr/membre-XXXXXX/films/)
+    /// URL du profil Allocine (ex : https://www.allocine.fr/membre-XXXXXX/films/)
     #[arg(value_parser = validate_allocine_url)]
     url: String,
 
-    /// Output directory for CSV files
+    /// Répertoire de sortie pour les fichiers CSV
     #[arg(short, long, default_value = ".")]
     output: PathBuf,
 
-    /// Enable verbose logging
+    /// Activer les logs détaillés
     #[arg(short, long)]
     verbose: bool,
 
-    /// Enable debug mode (save HTML pages, detailed logging)
+    /// Activer le mode débogage (sauvegarde les pages HTML, logs détaillés)
     #[arg(short = 'D', long)]
     debug: bool,
 
-    /// Skip scraping reviews
+    /// Ignorer le scraping des critiques
     #[arg(long)]
     skip_reviews: bool,
 
-    /// Skip scraping wishlist
+    /// Ignorer le scraping de la wishlist
     #[arg(long)]
     skip_wishlist: bool,
 
-    /// Delay between requests in milliseconds (to avoid rate limiting)
+    /// Délai entre les requêtes en millisecondes (pour éviter le rate limiting)
     #[arg(short, long, default_value = "1500")]
     delay_ms: u64,
 }
@@ -76,7 +76,7 @@ fn validate_allocine_url(url: &str) -> Result<String> {
         if re.is_match(&normalized) {
             Ok(normalized)
         } else {
-            Err(anyhow::anyhow!("Invalid Allocine URL. Please provide a URL like: https://www.allocine.fr/membre-XXXXXX/films/ or https://www.allocine.fr/membre-XXXXXX/"))
+            Err(anyhow::anyhow!("URL Allocine invalide. Veuillez fournir une URL comme : https://www.allocine.fr/membre-XXXXXX/films/ ou https://www.allocine.fr/membre-XXXXXX/"))
         }
     }
 }
@@ -94,8 +94,8 @@ fn normalize_url(url: &str) -> String {
     url.to_string()
 }
 
-/// Unified progress bar spanning the entire scrape process.
-/// Shows [=====>     ] 45% — Step 2/4: Scraping reviews
+/// Barre de progression unifiée couvrant tout le processus de scraping.
+/// Affiche [=====>     ] 45% — Étape 2/4 : Scraping des critiques
 struct ProgressBar {
     step: usize,
     total_steps: usize,
@@ -149,7 +149,7 @@ impl ProgressBar {
             format!("({}/?)", self.current)
         };
         print!(
-            "\r  [{}] {}% — Step {}/{}: {} {}   ",
+            "\r  [{}] {}% — Étape {}/{} : {} {}   ",
             bar, pct_str, self.step, self.total_steps, self.step_label, suffix
         );
         io::stdout().flush().unwrap();
@@ -217,14 +217,14 @@ impl Scraper {
         }
         let path = self.output_dir.join(filename);
         std::fs::write(&path, html)?;
-        println!("  💾 Debug HTML saved to: {}", path.display());
+        println!("  💾 HTML de débogage sauvegardé : {}", path.display());
         Ok(())
     }
 
     /// Log debug information
     fn debug_log(&self, message: &str) {
         if self.debug {
-            eprintln!("  🔍 DEBUG: {}", message);
+            eprintln!("  🔍 DÉBOGAGE : {}", message);
         }
     }
 
@@ -243,7 +243,7 @@ impl Scraper {
                 Ok(r) => r,
                 Err(e) => {
                     if attempt < max_retries {
-                        eprintln!("  Retry {}/{} for {}: {}", attempt + 1, max_retries, url, e);
+                        eprintln!("  Relance {}/{} pour {} : {}", attempt + 1, max_retries, url, e);
                         sleep(Duration::from_millis(self.delay_ms * 2)).await;
                         continue;
                     }
@@ -258,7 +258,7 @@ impl Scraper {
             if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS && attempt < max_retries {
                 // Wait longer for rate limiting
                 let wait_time = self.delay_ms * (attempt as u64 + 1) * 3;
-                eprintln!("  Rate limited on {}, waiting {}ms...", url, wait_time);
+                eprintln!("  Limite de débit atteinte sur {}, attente de {}ms...", url, wait_time);
                 sleep(Duration::from_millis(wait_time)).await;
                 continue;
             }
@@ -269,7 +269,7 @@ impl Scraper {
             }
 
             if attempt < max_retries {
-                eprintln!("  HTTP {} on {}, retrying...", response.status(), url);
+                eprintln!("  HTTP {} sur {}, relance...", response.status(), url);
                 sleep(Duration::from_millis(self.delay_ms * 2)).await;
                 continue;
             }
@@ -305,7 +305,7 @@ impl Scraper {
         let mut max_page: usize = 0;
         
         if self.debug {
-            eprintln!("\n  ===== Page Detection Debug =====");
+            eprintln!("\n  ===== Débogage détection de pages =====");
         }
 
         // Strategy 1: Look for pagination container div.pagination-item-holder
@@ -451,9 +451,9 @@ impl Scraper {
         
         if self.debug {
             if max_page == 0 {
-                eprintln!("  ⚠️  No page number detected by any strategy!");
+                eprintln!("  ⚠️  Aucun numéro de page détecté par aucune stratégie !");
             } else {
-                eprintln!("  ✅ Total pages detected: {}", max_page);
+                eprintln!("  ✅ Nombre total de pages détecté : {}", max_page);
             }
         }
 
@@ -478,7 +478,7 @@ impl Scraper {
         let mut total_pages: Option<usize> = None;
         const MAX_PAGES_FALLBACK: usize = 500; // Limite de sécurité
 
-        self.progress.start_step(1, "Scraping films", 0);
+        self.progress.start_step(1, "Scraping des films", 0);
 
         loop {
             // Conditions d'arrêt : URL déjà visitée, limite de sécurité, ou page vide
@@ -490,7 +490,7 @@ impl Scraper {
                     break; // On a dépassé le total de pages détecté
                 }
             } else if page > MAX_PAGES_FALLBACK {
-                eprintln!("  ⚠️ Safety limit reached ({} pages), stopping.", MAX_PAGES_FALLBACK);
+                eprintln!("  ⚠️ Limite de sécurité atteinte ({} pages), arrêt du scraping.", MAX_PAGES_FALLBACK);
                 eprintln!("   → Le sélecteur de pagination n'a pas trouvé de nombre total de pages.");
                 break;
             }
@@ -514,7 +514,7 @@ impl Scraper {
                             total_pages = Some(detected_pages);
                             self.progress.set_total(detected_pages);
                         } else {
-                            eprintln!("  ℹ️ Page count not detected, using fallback...");
+                            eprintln!("  ℹ️ Nombre de pages non détecté, utilisation du fallback...");
                         }
                     }
 
@@ -545,10 +545,10 @@ impl Scraper {
                     page += 1;
                 }
                 Err(e) => {
-                    eprintln!("  ❌ Error on page {}: {}", page, e);
+                    eprintln!("  ❌ Erreur sur la page {} : {}", page, e);
                     consecutive_errors += 1;
                     if consecutive_errors >= 2 {
-                        eprintln!("  Too many consecutive errors, stopping.");
+                        eprintln!("  Trop d'erreurs consécutives, arrêt.");
                         break;
                     }
                     // Essayer la page suivante
@@ -728,7 +728,7 @@ impl Scraper {
         let mut total_pages: Option<usize> = None;
         const MAX_PAGES_FALLBACK: usize = 500;
 
-        self.progress.start_step(2, "Scraping reviews", 0);
+        self.progress.start_step(2, "Scraping des critiques", 0);
 
         loop {
             // Conditions d'arret : URL deja visitee, limite de securite, ou page vide
@@ -740,7 +740,7 @@ impl Scraper {
                     break;
                 }
             } else if page > MAX_PAGES_FALLBACK {
-                eprintln!("  ⚠️ Safety limit reached ({} pages), stopping reviews scraping.", MAX_PAGES_FALLBACK);
+                eprintln!("  ⚠️ Limite de sécurité atteinte ({} pages), arrêt du scraping des critiques.", MAX_PAGES_FALLBACK);
                 eprintln!("   → Le selecteur de pagination n'a pas trouve de nombre total de pages.");
                 break;
             }
@@ -764,7 +764,7 @@ impl Scraper {
                             total_pages = Some(detected_pages);
                             self.progress.set_total(detected_pages);
                         } else {
-                            eprintln!("  ℹ️ Page count not detected, using fallback...");
+                            eprintln!("  ℹ️ Nombre de pages non détecté, utilisation du fallback...");
                         }
                     }
                     
@@ -801,10 +801,10 @@ impl Scraper {
                     page += 1;
                 }
                 Err(e) => {
-                    eprintln!("  ❌ Error on page {}: {}", page, e);
+                    eprintln!("  ❌ Erreur sur la page {} : {}", page, e);
                     consecutive_errors += 1;
                     if consecutive_errors >= 5 {
-                        eprintln!("  Too many consecutive errors, stopping.");
+                        eprintln!("  Trop d'erreurs consécutives, arrêt.");
                         break;
                     }
                     // Essayer la page suivante
@@ -903,7 +903,7 @@ impl Scraper {
                     match self.fetch_full_review_content(&url).await {
                         Ok(full_text) => full_text,
                         Err(e) => {
-                            eprintln!("  ⚠️ Failed to fetch full review for '{}': {}", title, e);
+                            eprintln!("  ⚠️ Échec de la récupération de la critique complète pour '{}' : {}", title, e);
                             text
                         }
                     }
@@ -944,7 +944,7 @@ impl Scraper {
         let mut total_pages: Option<usize> = None;
         const MAX_PAGES_FALLBACK: usize = 500;
 
-        self.progress.start_step(3, "Scraping wishlist", 0);
+        self.progress.start_step(3, "Scraping de la wishlist", 0);
 
         loop {
             // Conditions d'arret : URL deja visitee ou limite de securite
@@ -956,7 +956,7 @@ impl Scraper {
                     break;
                 }
             } else if page > MAX_PAGES_FALLBACK {
-                eprintln!("  ⚠️ Safety limit reached ({} pages), stopping wishlist scraping.", MAX_PAGES_FALLBACK);
+                eprintln!("  ⚠️ Limite de sécurité atteinte ({} pages), arrêt du scraping de la wishlist.", MAX_PAGES_FALLBACK);
                 eprintln!("   → Le selecteur de pagination n'a pas trouve de nombre total de pages.");
                 break;
             }
@@ -984,7 +984,7 @@ impl Scraper {
                             let page_items = self.extract_wishlist(&document);
                             if page_items.is_empty() {
                                 // No pagination and no items = user has no wishlist
-                                eprintln!("  ℹ️ No wishlist found (wishlist is empty or disabled).");
+                                eprintln!("  ℹ️ Aucune wishlist trouvée (wishlist vide ou désactivée).");
                                 break;
                             } else {
                                 // No pagination but items exist = single page
@@ -1020,9 +1020,9 @@ impl Scraper {
                 Err(e) => {
                     if page == 1 && e.to_string().contains("404") {
                         // Wishlist page doesn't exist - user has no wishlist
-                        eprintln!("  ℹ️ No wishlist found (wishlist page does not exist).");
+                        eprintln!("  ℹ️ Aucune wishlist trouvée (la page de wishlist n'existe pas).");
                     } else {
-                        eprintln!("  ❌ Error on page {}: {}", page, e);
+                        eprintln!("  ❌ Erreur sur la page {} : {}", page, e);
                     }
                     break;
                 }
@@ -1235,7 +1235,7 @@ async fn main() -> Result<()> {
     let mut scraper = Scraper::new(args.delay_ms, args.debug, args.output.clone())?;
     
     if args.debug {
-        println!("Debug mode enabled - HTML pages will be saved for analysis");
+        println!("Mode débogage activé - les pages HTML seront sauvegardées pour analyse");
     }
 
     // Scrape films
@@ -1256,7 +1256,7 @@ async fn main() -> Result<()> {
     };
 
     // Export
-    scraper.progress.start_step(4, "Exporting CSV", 2);
+    scraper.progress.start_step(4, "Export CSV", 2);
 
     // Export films
     let mut films_split = false;
@@ -1319,24 +1319,24 @@ async fn main() -> Result<()> {
     };
     scraper.progress.update(2);
 
-    // Clear the progress bar
+    // Effacer la barre de progression
     scraper.progress.finish();
 
-    // Print summary
-    println!("  Films: {}", films_count);
+    // Afficher le récapitulatif
+    println!("  Films : {}", films_count);
     if films_split {
-        println!("    Split into {} parts (Letterboxd 2500-row limit):", films_parts.len());
+        println!("    Découpé en {} fichiers (limite de 2500 lignes par Letterboxd) :", films_parts.len());
         for (i, (p, n)) in films_parts.iter().enumerate() {
-            println!("      Part {}: {} rows — {}", i + 1, n, p.display());
+            println!("      Fichier {} : {} lignes — {}", i + 1, n, p.display());
         }
-        println!("    Import each part separately at https://letterboxd.com/import/import/");
+        println!("    Importez chaque fichier séparément sur https://letterboxd.com/import/import/");
     } else if !films_parts.is_empty() {
-        println!("    Exported to {}", films_parts[0].0.display());
+        println!("    Exporté vers {}", films_parts[0].0.display());
     }
     if let Some(ref wp) = wishlist_path {
-        println!("  Wishlist: {} items — {}", wishlist.len(), wp.display());
+        println!("  Wishlist : {} films — {}", wishlist.len(), wp.display());
     }
     println!("");
-    println!("Done!");
+    println!("Terminé !");
     Ok(())
 }
