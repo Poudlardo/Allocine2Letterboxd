@@ -31,6 +31,9 @@ URLs de profil utilisées comme exemples valides (membre `Z200303181046398137791
   créera pas de fiche. → Voir §5.
 - **Export prévu en deux fichiers** (`allocine-miniseries.csv` + `allocine-series.csv`) pour
   refléter ce que Letterboxd peut réellement importer aujourd'hui. → Voir §4 points 5-6.
+- **Enrichissement par fiche validé** (annexe A) : 100 % fiable, ~43 ms/fiche sans délai
+  (~17 s pour 404 séries), heuristique texte inutilisable (0/36). On fetche donc
+  `numberOfSeasons` pour chaque série.
 
 ---
 
@@ -82,6 +85,8 @@ facultative (ex. suffixe de titre `Battlestar Galactica (Saison 4)`).
 | Série | `/series/ficheserie_gen_cserie=NNN.html` | `/membre-XXX/critiques/serie-NNN/` ou `/membre-XXX/critiques/serie/season-NNN/` |
 
 Toutes ces URLs sont aujourd'hui **encodées en base64 dans la classe** du span (voir §3).
+Exception notable : sur la page `/series/` (séries notées), le lien titre est un vrai
+`<a href>` lisible (voir annexe A.5).
 
 ---
 
@@ -111,10 +116,10 @@ séparément les miniséries) :
 3. Attention : une série annulée après 1 saison n'est pas une mini-série ; le statut
    « terminée » (`Statut` / `en cours`) aide à lever l'ambiguïté mais reste éditorial.
 
-Pour le scope `allocine2letterboxd`, la distinction mini-série/série **n'est probablement pas
-nécessaire au scraping** : AlloCiné les liste indifféremment dans `/series/` et
-`/critiques/series/`. C'est Letterboxd qui, à l'import, peut les traiter séparément via ses
-propres listes (ex. [Top 250 Miniseries](https://letterboxd.com/official/list/top-250-miniseries/)).
+Pour le scope `allocine2letterboxd`, la distinction mini-série/série **est nécessaire à
+l'export** (cf. §5 et annexe A) car Letterboxd traite différemment les miniséries
+(importables) et les séries récurrentes (non importables aujourd'hui). La méthode
+validée est l'enrichissement par fiche (`numberOfSeasons`, annexe A).
 
 ---
 
@@ -203,8 +208,8 @@ Ordre de dépendance, du plus simple au plus impliqué.
 4. **Wishlist séries** : `membre-{id}/series/envie-de-voir/` (symétrique au films, à vérifier
    sur un profil ayant une watchlist de séries — l'exemple fourni n'en avait pas, la page
    `/series/` listait directement les séries notées).
-5. **Export CSV séparé miniséries / séries récurrentes** (cf. §5) : ne pas produire un
-   seul `allocine-series.csv`, mais **deux fichiers** pour refléter ce que Letterboxd sait
+5. **Export CSV séparé miniséries / séries récurrentes** (cf. §5 et annexe A) : ne pas produire
+   un seul `allocine-series.csv`, mais **deux fichiers** pour refléter ce que Letterboxd sait
    actuellement importer :
    - `allocine-miniseries.csv` — séries à **1 saison** (mini-séries) : matchables dans le
      catalogue Letterboxd actuel (héritage TMDB). Format identique aux films :
@@ -213,10 +218,10 @@ Ordre de dépendance, du plus simple au plus impliqué.
      aujourd'hui sur Letterboxd. Fichier généré quand même (pour traçabilité / réimport
      futur quand Letterboxd livrera le support TV), mais avec un avertissement utilisateur.
    - La distinction se fait à l'export via `numberOfSeasons` lu sur la fiche série
-     (JSON-LD, §2). Si l'enrichissement par fiche est jugé trop coûteux (1 fetch par série),
-     fallback heuristique : considérer comme minisérie toute série dont la critique
-     mentionne « mini-série » dans son texte, sinon ranger dans `series.csv` par défaut.
-     Mieux vaut fetcher la fiche : 404 séries à ~1 fetch délayé chacune reste raisonnable.
+     (JSON-LD, §2). **L'enrichissement par fiche est validé** (annexe A) : 100 % fiable,
+     ~43 ms/fiche sans délai (~17 s pour 404 séries), ~2–4 min avec délai conservateur.
+     L'heuristique texte (« mini-série » dans les critiques) est **inutilisable** (couverture
+     0/36, annexe A.3) — on écarte le fallback et on fetche la fiche.
    - Récap terminal :
      - `allocine-miniseries.csv` : N lignes — à importer sur Letterboxd.
      - `allocine-series.csv` : M lignes — séries récurrentes, NON importables sur Letterboxd
@@ -248,7 +253,7 @@ annoncée mais **pas encore livrée**.
 D'après la page d'aide officielle *« Do you support TV shows? »*
 (letterboxd.zendesk.com) :
 
-> « No, we do not support ‘returning’ TV shows at this time, but we are working on this
+> « No, we do not support 'returning' TV shows at this time, but we are working on this
 > as a future platform extension. For historic reasons, we support a small selection of
 > television content that was originally allowed by TMDB in its Movies section (limited or
 > miniseries, TV movies) as well as some notable exceptions like *Black Mirror* episodes
@@ -338,3 +343,102 @@ côté Letterboxd ; TMDB fournit la donnée source (type, saisons, etc.).
 - Classes/sélecteurs extraits par analyse du HTML brut (voir commits de cette branche).
 - JSON-LD `TVSeries` + `og:type = video.tv_show` confirmés sur la fiche Battlestar.
 - Liste des genres de séries : `https://www.allocine.fr/series-tv/` (aucun « Mini-série »).
+- Validation du coût d'enrichissement par fiche (fetch `numberOfSeasons`) : voir Annexe A.
+
+---
+
+## Annexe A. Validation du coût d'enrichissement par fiche
+
+Demande : « valide d'abord le coût de l'enrichissement par fiche (fetcher
+`numberOfSeasons` pour chaque série) ». Objectif = trancher, avant d'implémenter (§4
+point 5), entre deux approches pour distinguer miniséries / séries récurrentes :
+
+- **(A) Enrichissement par fiche** : fetcher la fiche `/series/ficheserie_gen_cserie=NNN.html`
+  de chaque série pour lire `numberOfSeasons` dans le JSON-LD `TVSeries`.
+- **(B) Heuristique texte** : détecter le terme « mini-série » dans le texte des critiques
+  (zéro fetch supplémentaire, mais dépend du contenu rédigé par l'utilisateur).
+
+### A.1 Protocole
+
+Méthode : 36 séries de la page 1 de `/series/` du profil exemple
+(`Z20030318104639813779116`, 404 séries notées au total). Pour chaque série :
+fetch de la fiche, extraction de `numberOfSeasons` dans tous les blocs
+`<script type="application/ld+json">` dont `@type` contient `TVSeries`. Mesure du temps
+par fiche, de la taille téléchargée et du taux d'erreur.
+
+### A.2 Résultats chiffrés (36 fiches)
+
+| Métrique | Valeur |
+|---|---|
+| Fiches fetchées / erreurs | 36 / **0** |
+| `numberOfSeasons` trouvé | **36 / 36 (100 %)** |
+| Temps moyen / fiche (sans délai) | **~43 ms** (1,6 s pour 36 fiches) |
+| Temps moyen / fiche (délai 300 ms) | ~0,38 s |
+| Taille moyenne / fiche | ~331 KB (11,7 MB téléchargés pour 36 fiches) |
+
+Extrapolation au profil complet (404 séries) :
+
+| Configuration | Temps estimé |
+|---|---|
+| `delay_ms = 0` (défaut du scraper) | **~17 s** |
+| `delay_ms = 300` | ~2,3 min |
+| `delay_ms = 500` | ~3,7 min |
+
+Pour comparaison, le scraping des films prend déjà plusieurs minutes pour ~400 films
+(~11 pages de notes + fetch des critiques complètes). L'enrichissement par fiche
+(~17 s à 2–4 min selon le délai) est donc **du même ordre de grandeur**, acceptable.
+
+### A.3 Comparaison avec l'heuristique texte (approche B)
+
+Croisement titre ↔ critique de la page 1 de `/critiques/series/` : la recherche du
+terme « mini-série » dans le texte des critiques ne couvre **aucune** des 36 séries de la
+page de notes (0 / 36). Raisons :
+
+- l'heuristique ne s'applique qu'aux séries **ayant une critique** et dont l'utilisateur a
+  effectivement écrit le mot « mini-série » (subjectif) ;
+- l'ordre/contenu des pages `/series/` et `/critiques/series/` diffère (les deux listes ne
+  sont pas alignées par titre), rendant le rapprochement fragile.
+
+**Conclusion : l'heuristique texte est inutilisable en pratique** (couverture 0 / 36,
+dépend du contenu rédigé). Seul l'enrichissement par fiche est fiable.
+
+### A.4 Répartition observée (page 1, 36 séries)
+
+- `numberOfSeasons == 1` (miniséries potentielles) : **19**.
+- `numberOfSeasons > 1` (séries récurrentes) : **17**.
+- `numberOfSeasons` manquant : 0.
+
+Soit à peu près **53 % de miniséries** sur cet échantillon — cohérent avec l'idée
+qu'une part non négligeable des notes de séries sera effectivement importable sur
+Letterboxd (cf. §5).
+
+### A.5 Découverte complémentaire : `cserie` sans base64 sur `/series/`
+
+Sur la page `/series/` (séries notées), la carte titre contient un **vrai**
+`<a href="/series/ficheserie_gen_cserie=NNN.html" title="…">` (donc un `href` lisible,
+non obfusqué). Exemple réel :
+
+```html
+<a class="meta-title meta-title-link" href="/series/ficheserie_gen_cserie=261.html"
+   title="Battlestar Galactica">Battlestar Galactica</a>
+```
+
+→ Pour la page de **séries notées**, l'identifiant `cserie` s'extrait directement par
+`a[href*='ficheserie_gen_cserie=']` + regex `ficheserie_gen_cserie=(\d+)`, **sans
+décodage base64**. Le décodage base64 (§3) reste nécessaire pour le « Lire plus » des
+critiques (`/critiques/series/`) et pour le thumbnail, où les liens restent obfusqués
+en `<span class="ACr…">`.
+
+### A.6 Verdict
+
+L'enrichissement par fiche est **validé** : 100 % fiable, faible coût (~17 s à ~4 min
+selon le délai), et seule méthode viable compte tenu de l'inutilité de l'heuristique
+texte. **On procède avec l'approche (A)** dans l'implémentation (§4 point 5) :
+
+- pour chaque série notée / critiquée, fetcher sa fiche et lire `numberOfSeasons` ;
+- `numberOfSeasons == 1` → `allocine-miniseries.csv` ;
+- `numberOfSeasons > 1` (ou indéterminé) → `allocine-series.csv`.
+
+L'étape d'enrichissement devient un passage dédié du scraper séries, après le scraping
+pages et avant l'écriture CSV. Le `delay_ms` existant s'applique naturellement à ces
+fetchs.
