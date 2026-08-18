@@ -29,6 +29,8 @@ URLs de profil utilisées comme exemples valides (membre `Z200303181046398137791
 - **Côté Letterboxd** : les miniséries sont supportées *par héritage de TMDB*, les séries
   récurrentes **non** (annoncées, pas livrées). Importer une série récurrente via CSV ne
   créera pas de fiche. → Voir §5.
+- **Export prévu en deux fichiers** (`allocine-miniseries.csv` + `allocine-series.csv`) pour
+  refléter ce que Letterboxd peut réellement importer aujourd'hui. → Voir §4 points 5-6.
 
 ---
 
@@ -201,10 +203,27 @@ Ordre de dépendance, du plus simple au plus impliqué.
 4. **Wishlist séries** : `membre-{id}/series/envie-de-voir/` (symétrique au films, à vérifier
    sur un profil ayant une watchlist de séries — l'exemple fourni n'en avait pas, la page
    `/series/` listait directement les séries notées).
-5. **Export CSV** : produire `allocine-series.csv` (+ découpage 2500 lignes comme les films).
-   Letterboxd accepte l'import via le même format `Title,Rating10,Review`.
-6. **Mini-séries** : pas de traitement spécial au scraping. Optionnel, à l'export, préfixer
-   ou tagger via JSON-LD `numberOfSeasons==1` si on veut distinguer pour Letterboxd.
+5. **Export CSV séparé miniséries / séries récurrentes** (cf. §5) : ne pas produire un
+   seul `allocine-series.csv`, mais **deux fichiers** pour refléter ce que Letterboxd sait
+   actuellement importer :
+   - `allocine-miniseries.csv` — séries à **1 saison** (mini-séries) : matchables dans le
+     catalogue Letterboxd actuel (héritage TMDB). Format identique aux films :
+     `Title,Rating10,Review` (+ découpage 2500 lignes si nécessaire).
+   - `allocine-series.csv` — séries **récurrentes** (multi-saisons) : **non importables**
+     aujourd'hui sur Letterboxd. Fichier généré quand même (pour traçabilité / réimport
+     futur quand Letterboxd livrera le support TV), mais avec un avertissement utilisateur.
+   - La distinction se fait à l'export via `numberOfSeasons` lu sur la fiche série
+     (JSON-LD, §2). Si l'enrichissement par fiche est jugé trop coûteux (1 fetch par série),
+     fallback heuristique : considérer comme minisérie toute série dont la critique
+     mentionne « mini-série » dans son texte, sinon ranger dans `series.csv` par défaut.
+     Mieux vaut fetcher la fiche : 404 séries à ~1 fetch délayé chacune reste raisonnable.
+   - Récap terminal :
+     - `allocine-miniseries.csv` : N lignes — à importer sur Letterboxd.
+     - `allocine-series.csv` : M lignes — séries récurrentes, NON importables sur Letterboxd
+       tant que le support TV n'est pas livré (voir doc Letterboxd).
+6. **Avertissement utilisateur** : au lancement si l'URL est un profil séries, afficher un
+   rappel indiquant que seules les miniséries s'importeront, et pointer vers la doc
+   Letterboxd. Évite les tickets « mon import ne marche pas ».
 
 ### Vérifications à faire sur d'autres profils
 
@@ -287,14 +306,14 @@ côté Letterboxd ; TMDB fournit la donnée source (type, saisons, etc.).
   catalogue (ex. *Chernobyl*, *Band of Brothers*, *Twin Peaks: The Return*, *When They See
   Us* sont dans le Top 250 Miniseries). Les séries françaises moins exposées ont peu de chance
   d'y être.
-- **Recommandation** : à l'export, séparer les séries potentiellement matchables
-  (miniséries : 1 saison, titre reconnu internationalement) des séries récurrentes qui
-  n'aboutiront pas. Eventuellement produire un CSV « miniséries » et un CSV « séries »,
-  voire avertir l'utilisateur que les séries récurrentes ne s'importeront pas tant que
-  Letterboxd n'aura pas livré le support TV.
+- **Recommandation (retenue dans le plan §4)** : à l'export, séparer les séries
+  potentiellement matchables (miniséries : 1 saison, titre reconnu internationalement) des
+  séries récurrentes qui n'aboutiront pas → `allocine-miniseries.csv` (à importer) et
+  `allocine-series.csv` (non importable pour l'instant) + avertissement utilisateur.
 - Le **timing** importe : si Letterboxd livre le support des séries récurrentes (annoncé
   « fin 2026 » selon certaines discussions, mais non officiellement daté), l'outil gagnera à
-  être prêt à exporter dès l'ouverture, avec un format compatible (TMDB-driven).
+  être prêt à exporter dès l'ouverture, avec un format compatible (TMDB-driven). Le fichier
+  `allocine-series.csv` restera alors directement réutilisable.
 
 ### 5.5 Sources primaires (Letterboxd)
 
