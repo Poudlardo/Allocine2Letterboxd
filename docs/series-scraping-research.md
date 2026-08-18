@@ -21,11 +21,14 @@ URLs de profil utilisées comme exemples valides (membre `Z200303181046398137791
   mais des `<span class="ACr…(base64)…">` **sans attribut `href`**. Le sélecteur actuel
   `a[href*='/film-']` et le `l.value().attr("href")` sur `.blue-link.link-more`
   ne matchent donc **plus rien** (vérifié : 0 `href` contenant `/film-` ou `/serie-`).
-  → Voir §« Obfuscation base64 des liens ».
+  → Voir §3.
 - AlloCiné **ne distingue pas** mini-séries et séries par un type/genre dédié. Tout est
   `TVSeries` (`og:type = video.tv_show`). La mini-série se reconnaît uniquement à
   `numberOfSeasons == 1` (JSON-LD) et au terme éditorial « mini-série » dans les textes.
-  → Voir §« Mini-séries vs séries ».
+  → Voir §2.
+- **Côté Letterboxd** : les miniséries sont supportées *par héritage de TMDB*, les séries
+  récurrentes **non** (annoncées, pas livrées). Importer une série récurrente via CSV ne
+  créera pas de fiche. → Voir §5.
 
 ---
 
@@ -80,7 +83,7 @@ Toutes ces URLs sont aujourd'hui **encodées en base64 dans la classe** du span 
 
 ---
 
-## 2. Mini-séries vs séries
+## 2. Mini-séries vs séries (côté AlloCiné)
 
 **Réponse courte : AlloCiné ne différencie pas les mini-séries des séries par un type ou un
 genre dédié.** La distinction est implicite.
@@ -214,7 +217,99 @@ Ordre de dépendance, du plus simple au plus impliqué.
 
 ---
 
-## Sources primaires
+## 5. Côté Letterboxd : miniséries oui, séries récurrentes pas encore
+
+Question : comment Letterboxd a-t-il intégré les **mini-séries** mais pas les **séries**,
+et comment se compose son catalogue TV ? Réponse courte : c'est un **héritage de TMDB**
+plutôt qu'une décision produit assumée, et la bascule vers les séries récurrentes est
+annoncée mais **pas encore livrée**.
+
+### 5.1 L'état officiel actuel (source : aide Letterboxd)
+
+D'après la page d'aide officielle *« Do you support TV shows? »*
+(letterboxd.zendesk.com) :
+
+> « No, we do not support ‘returning’ TV shows at this time, but we are working on this
+> as a future platform extension. For historic reasons, we support a small selection of
+> television content that was originally allowed by TMDB in its Movies section (limited or
+> miniseries, TV movies) as well as some notable exceptions like *Black Mirror* episodes
+> and shows that were initially marketed as limited series but subsequently given second
+> seasons (like *Big Little Lies*). »
+
+Donc :
+- **Séries récurrentes** (multi-saisons) : **non supportées** aujourd'hui. En cours
+  (« future platform extension »), annoncé à plusieurs reprises mais pas livré.
+- **Miniséries** (et téléfilms) : supportées **pour des raisons historiques** liées à TMDB.
+- Letterboxd se réserve le droit de retirer le contenu TV à tout moment ; une critique
+  retirée reste disponible dans l'export de compte (Settings).
+
+### 5.2 Pourquoi les miniséries mais pas les séries : le rôle de TMDB
+
+Letterboxd tire son catalogue de **TMDB** (The Movie Database). Historiquement, TMDB
+rangeait certaines miniséries et téléfilms dans sa section **Movies** ; Letterboxd les a donc
+importés comme des films. TMDB a ensuite **déplacé ce contenu vers une section TV dédiée**.
+Conséquence : sur Letterboxd, certaines entrées pointent désormais vers des fiches TV TMDB
+(pour continuer à recevoir les mises à jour) tout en restant présentes comme « films ».
+
+Résumé : **les miniséries sont là par accident hérité de l'ancien modèle TMDB**, pas par
+une politique TV délibérée. Les séries récurrentes n'ont jamais été dans la section Movies de
+TMDB, donc jamais importées par Letterboxd. Le support des séries récurrentes exige un
+vrai développement produit (en cours).
+
+### 5.3 Comment se compose le catalogue « miniséries » de Letterboxd
+
+Letterboxd maintient une liste officielle **Top 250 Miniseries**
+(letterboxd.com/official/list/top-250-miniseries/). Règles d'éligibilité (extraites de la
+liste) :
+
+- Seuil minimum de **1 000 notes** membres.
+- Les miniséries doivent être **importées de la section TV de TMDB** pour être éligibles.
+- Sont **exclues** : films de cinéma, séries renouvelées (multi-saisons), séries
+  documentaires, vidéos web auto-publiées.
+
+La distinction minisérie vs série sur Letterboxd repose donc sur le **critère « une seule
+saison / non renouvelée »** — exactement la même logique que sur AlloCiné
+(`numberOfSeasons == 1`). Exemples cités dans les commentaires de la liste : *Vinland Saga*,
+*Frieren*, *Apothecary Diaries* sont **exclues** car multi-saisons ; *Beef* a été retirée
+après l'annonce d'une saison 2.
+
+Le catalogue se met à jour manuellement (liste curatée par un membre, « slinkyman »,
+mise à jour mensuelle), pas automatiquement. Le tag « tv » / « miniseries » est appliqué
+côté Letterboxd ; TMDB fournit la donnée source (type, saisons, etc.).
+
+### 5.4 Implications pour allocine2letterboxd
+
+- **Importer des séries récurrentes sur Letterboxd via CSV ne créera pas de fiche** : si la
+  série n'existe pas déjà dans le catalogue Letterboxd (i.e. pas une minisérie héritée de TMDB),
+  la ligne d'import sera ignorée ou attachée à rien. Letterboxd ne crée pas d'entrées à partir
+  d'un import ; il ne fait que matcher sur son catalogue existant.
+- **Les miniséries** ont de bonnes chances d'être matchées si elles figurent déjà dans le
+  catalogue (ex. *Chernobyl*, *Band of Brothers*, *Twin Peaks: The Return*, *When They See
+  Us* sont dans le Top 250 Miniseries). Les séries françaises moins exposées ont peu de chance
+  d'y être.
+- **Recommandation** : à l'export, séparer les séries potentiellement matchables
+  (miniséries : 1 saison, titre reconnu internationalement) des séries récurrentes qui
+  n'aboutiront pas. Eventuellement produire un CSV « miniséries » et un CSV « séries »,
+  voire avertir l'utilisateur que les séries récurrentes ne s'importeront pas tant que
+  Letterboxd n'aura pas livré le support TV.
+- Le **timing** importe : si Letterboxd livre le support des séries récurrentes (annoncé
+  « fin 2026 » selon certaines discussions, mais non officiellement daté), l'outil gagnera à
+  être prêt à exporter dès l'ouverture, avec un format compatible (TMDB-driven).
+
+### 5.5 Sources primaires (Letterboxd)
+
+- Page d'aide officielle *« Do you support TV shows? »* :
+  https://letterboxd.zendesk.com/hc/en-us/articles/15269096507407-Do-you-support-TV-shows
+- Liste officielle *Top 250 Miniseries* (+ règles d'éligibilité) :
+  https://letterboxd.com/official/list/top-250-miniseries/
+- Annonces/discussions sur l'arrivée des séries (récurrentes) : discussions r/Letterboxd
+  (tweet officiel « Series will be coming later this year » ; fil « All series and
+  miniseries coming this year ») — à prendre avec réserve, rien d'officiellement daté par
+  Letterboxd à ce jour.
+
+---
+
+## Sources primaires (AlloCiné)
 
 - HTML brut récupéré (membre `Z20030318104639813779116`) le 2026-08-18 :
   - `/series/` (séries notées, 404 au total)
