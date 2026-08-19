@@ -9,6 +9,7 @@ use regex::Regex;
 use reqwest::Client;
 use scraper::{Html, Selector};
 use serde::Serialize;
+use serde_json;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Write};
@@ -67,6 +68,65 @@ struct Args {
     delay_ms: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ContentType {
+    Films,
+    Series,
+}
+
+impl ContentType {
+    fn segment(&self) -> &'static str {
+        match self {
+            ContentType::Films => "films",
+            ContentType::Series => "series",
+        }
+    }
+
+    fn critique_segment(&self) -> &'static str {
+        match self {
+            ContentType::Films => "films",
+            ContentType::Series => "series",
+        }
+    }
+
+    fn fiche_href_marker(&self) -> &'static str {
+        match self {
+            ContentType::Films => "film",
+            ContentType::Series => "serie",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RatedItem {
+    title: String,
+    rating: String,
+    id: Option<String>,
+}
+
+/// Decode Allocine's obfuscated ACr class to get the actual URL.
+fn decode_acr_class(encoded: &str) -> Option<String> {
+    if !encoded.starts_with("ACr") {
+        return None;
+    }
+    let encoded_part = &encoded[3..];
+    if let Ok(decoded_bytes) = base64::decode(encoded_part) {
+        if let Ok(decoded) = String::from_utf8(decoded_bytes) {
+            return Some(decoded);
+        }
+    }
+    None
+}
+
+/// Detect content type from URL
+fn detect_content_type(url: &str) -> ContentType {
+    if url.contains("/series") || url.contains("/critiques/series") {
+        ContentType::Series
+    } else {
+        ContentType::Films
+    }
+}
+
 fn validate_allocine_url(url: &str) -> Result<String> {
     let re = Regex::new(r"^https://www\.allocine\.fr/membre-[A-Z0-9]+(/films/?|/critiques/films/?)?$").unwrap();
     if re.is_match(url) {
@@ -76,19 +136,22 @@ fn validate_allocine_url(url: &str) -> Result<String> {
         if re.is_match(&normalized) {
             Ok(normalized)
         } else {
-            Err(anyhow::anyhow!("URL Allocine invalide. Veuillez fournir une URL comme : https://www.allocine.fr/membre-XXXXXX/films/ ou https://www.allocine.fr/membre-XXXXXX/"))
+            Err(anyhow::anyhow!("URL Allocine invalide. Veuillez fournir une URL comme : https://www.allocine.fr/membre-XXXXXX/films/ ou https://www.allocine.fr/membre-XXXXXX/series/"))
         }
     }
 }
 
 fn normalize_url(url: &str) -> String {
     let url = url.trim().trim_end_matches('/');
-    if !url.ends_with("/films") && !url.ends_with("/films/") && !url.ends_with("/critiques/films") && !url.ends_with("/critiques/films/") {
+    let has_films = url.ends_with("/films") || url.ends_with("/critiques/films");
+    let has_series = url.ends_with("/series") || url.ends_with("/critiques/series");
+    if !has_films && !has_series {
         if let Some(caps) = Regex::new(r"membre-([A-Z0-9]+)").unwrap().captures(url) {
             return format!("https://www.allocine.fr/membre-{}/films/", &caps[1]);
         }
     }
-    if url.ends_with("/films") || url.ends_with("/critiques/films") {
+    if url.ends_with("/films") || url.ends_with("/critiques/films")
+        || url.ends_with("/series") || url.ends_with("/critiques/series") {
         return format!("{}/", url);
     }
     url.to_string()
@@ -209,7 +272,8 @@ struct Selectors {
     review_block: Selector,
     review_content: Selector,
     review_lire_plus: Selector,
-    review_title: Selector,
+    review_second_title: Selector,
+    review_card_title: Selector,
 }
 
 impl Selectors {
@@ -220,7 +284,8 @@ impl Selectors {
             review_block: Selector::parse(".review-card").unwrap(),
             review_content: Selector::parse(".content-txt.review-card-content").unwrap(),
             review_lire_plus: Selector::parse(".blue-link.link-more").unwrap(),
-            review_title: Selector::parse("a[href*='/film-']").unwrap(),
+            review_second_title: Selector::parse(".review-card-second-title").unwrap(),
+            review_card_title: Selector::parse(".review-card-title").unwrap(),
         }
     }
 }
@@ -232,16 +297,17 @@ struct Scraper {
     debug: bool,
     output_dir: PathBuf,
     progress: ProgressBar,
+    content_type: ContentType,
 }
 
 impl Scraper {
-    fn new(delay_ms: u64, debug: bool, output_dir: PathBuf) -> Result<Self> {
+    fn new(delay_ms: u64, debug: bool, output_dir: PathBuf, content_type: ContentType) -> Result<Self> {
         let client = Client::builder()
             .cookie_store(true)
             .timeout(Duration::from_secs(60))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .build()?;
-        Ok(Self { client, selectors: Selectors::new(), delay_ms, debug, output_dir, progress: ProgressBar::new() })
+        Ok(Self { client, selectors: Selectors::new(), delay_ms, debug, output_dir, progress: ProgressBar::new(), content_type })
     }
 
     /// Save HTML content to a debug file
@@ -317,14 +383,17 @@ impl Scraper {
         self.fetch_page_with_retry(url, 5).await
     }
 
-    /// Fetch full review content from a "Lire plus" dedicated page
+    /// Fetch full review content from a "Lire plus" dedicated page.
     async fn fetch_full_review_content(&self, url: &str) -> Result<String> {
-        // Add delay before fetching to avoid rate limiting
         if self.delay_ms > 0 {
             sleep(Duration::from_millis(self.delay_ms)).await;
         }
-        
-        let html = self.fetch_page(url).await?;
+        let actual_url = if url.starts_with("ACr") {
+            decode_acr_class(url).ok_or_else(|| anyhow::anyhow!("Failed to decode obfuscated review URL"))?
+        } else {
+            url.to_string()
+        };
+        let html = self.fetch_page(&actual_url).await?;
         let document = Html::parse_document(&html);
         document.select(&self.selectors.review_content)
             .next()
@@ -494,17 +563,17 @@ impl Scraper {
         max_page
     }
 
-    async fn scrape_films(&mut self, url: &str) -> Result<Vec<Film>> {
-        // Extract member ID and always use the /films/ URL, even if the input
-        // was a /critiques/films/ URL
+    async fn scrape_rated(&mut self, url: &str) -> Result<Vec<RatedItem>> {
+        // Extract member ID and always use the /{segment}/ URL
         let member_id = Regex::new(r"membre-([A-Z0-9]+)")
             .unwrap()
             .captures(url)
             .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
             .ok_or_else(|| anyhow::anyhow!("Could not extract member ID from URL"))?;
 
-        let base_url = format!("https://www.allocine.fr/membre-{}/films/", member_id);
-        let mut films = Vec::new();
+        let segment = self.content_type.segment();
+        let base_url = format!("https://www.allocine.fr/membre-{}/{}/", member_id, segment);
+        let mut items = Vec::new();
         let mut current_url = base_url.clone();
         let mut visited = HashSet::new();
         let mut page = 1;
@@ -512,7 +581,7 @@ impl Scraper {
         let mut total_pages: Option<usize> = None;
         const MAX_PAGES_FALLBACK: usize = 500; // Limite de sécurité
 
-        self.progress.start_step(1, "Scraping des films", 150);
+        let step_label = match self.content_type { ContentType::Films => "Scraping des films", ContentType::Series => "Scraping des series", }; self.progress.start_step(1, step_label, 150);
 
         loop {
             // Conditions d'arrêt : URL déjà visitée, limite de sécurité, ou page vide
@@ -552,14 +621,14 @@ impl Scraper {
                         }
                     }
 
-                    let page_films = self.extract_films(&document);
+                    let page_items = self.extract_rated(&document);
                     
                     // Si aucun film trouvé sur cette page, on a atteint la fin
-                    if page_films.is_empty() {
+                    if page_items.is_empty() {
                         break;
                     }
                     
-                    films.extend(page_films);
+                    items.extend(page_items);
                     self.progress.update(page);
                     consecutive_errors = 0;
 
@@ -597,20 +666,22 @@ impl Scraper {
             }
         }
         self.progress.finish_step();
-        Ok(films)
+        Ok(items)
     }
 
-    fn extract_films(&self, document: &Html) -> Vec<Film> {
-        let mut films = Vec::new();
+    fn extract_rated(&self, document: &Html) -> Vec<RatedItem> {
+        let mut items = Vec::new();
+        let marker = self.content_type.fiche_href_marker();
         
         // Primary selector - try multiple selectors
-        let film_selectors = vec![
+        let card_selectors = vec![
             Selector::parse(".userprofile-section .card.entity-card-simple.userprofile-entity-card-simple").unwrap(),
             Selector::parse(".section-films .card.entity-card-simple.userprofile-entity-card-simple").unwrap(),
+            Selector::parse(".section-series .card.entity-card-simple.userprofile-entity-card-simple").unwrap(),
             Selector::parse(".card.entity-card-simple.userprofile-entity-card-simple").unwrap(),
         ];
         
-        for selector in &film_selectors {
+        for selector in &card_selectors {
             for el in document.select(selector) {
                 let title = el.select(&self.selectors.film_title)
                     .next()
@@ -631,19 +702,28 @@ impl Scraper {
                     .map(|s| format!("{}.{}", &s[0..1], &s[1..2]))
                     .unwrap_or_default();
 
+                // Extract ID from href if available
+                let id = el.select(&Selector::parse(&format!("a[href*='{}']", marker)).unwrap())
+                    .next()
+                    .and_then(|a| a.value().attr("href"))
+                    .and_then(|href| {
+                        Regex::new(&format!(r"{}=(\d+)", marker)).ok()
+                            .and_then(|re| re.captures(href).and_then(|c| c.get(1).map(|m| m.as_str().to_string())))
+                    });
+
                 if let Some(title) = title {
-                    films.push(Film { title, rating });
+                    items.push(RatedItem { title, rating, id });
                 }
             }
             
             // If we found films with this selector, stop trying others
-            if !films.is_empty() {
+            if !items.is_empty() {
                 break;
             }
         }
         
         // Fallback selector (like JS version)
-        if films.is_empty() {
+        if items.is_empty() {
             for el in document.select(&Selector::parse(".card").unwrap()) {
                 let title = el.select(&Selector::parse(".meta-title-link, [class*=\"title\"]").unwrap())
                     .next()
@@ -664,13 +744,22 @@ impl Scraper {
                     .map(|s| format!("{}.{}", &s[0..1], &s[1..2]))
                     .unwrap_or_default();
 
+                // Try to extract ID from href in fallback too
+                let id = el.select(&Selector::parse(&format!("a[href*='{}']", marker)).unwrap())
+                    .next()
+                    .and_then(|a| a.value().attr("href"))
+                    .and_then(|href| {
+                        Regex::new(&format!(r"{}=(\d+)", marker)).ok()
+                            .and_then(|re| re.captures(href).and_then(|c| c.get(1).map(|m| m.as_str().to_string())))
+                    });
+
                 if let Some(title) = title {
-                    films.push(Film { title, rating });
+                    items.push(RatedItem { title, rating, id });
                 }
             }
         }
         
-        films
+items
     }
 
     fn find_next_page(&self, document: &Html, current_url: &str) -> Option<String> {
@@ -879,7 +968,7 @@ impl Scraper {
             }
             
             if title.is_empty() {
-                for link in block.select(&self.selectors.review_title) {
+                for link in block.select(&self.selectors.review_card_title) {
                     let text = strip_html_tags(&link.inner_html());
                     if !text.is_empty() && !text.chars().all(|c| c.is_numeric() || c.is_whitespace()) {
                         title = text;
@@ -1169,7 +1258,7 @@ fn normalize_title(title: &str) -> String {
     cleaned.to_lowercase().trim().to_string()
 }
 
-fn merge_data(films: Vec<Film>, reviews: Vec<Review>) -> Vec<ExportEntry> {
+fn merge_data(rated: Vec<RatedItem>, reviews: Vec<Review>) -> Vec<ExportEntry> {
     // Create a map from normalized film title to review
     let mut review_map: HashMap<String, String> = HashMap::new();
     
@@ -1183,13 +1272,13 @@ fn merge_data(films: Vec<Film>, reviews: Vec<Review>) -> Vec<ExportEntry> {
     }
     
     // Now merge
-    let mut entries = Vec::with_capacity(films.len());
-    for film in &films {
-        let norm_title = normalize_title(&film.title);
+    let mut entries = Vec::with_capacity(rated.len());
+    for item in &rated {
+        let norm_title = normalize_title(&item.title);
         let review = review_map.get(&norm_title).cloned().unwrap_or_default();
         entries.push(ExportEntry {
-            title: film.title.clone(),
-            rating10: convert_rating(&film.rating),
+            title: item.title.clone(),
+            rating10: convert_rating(&item.rating),
             review: clean_review(&review),
         });
     }
@@ -1262,14 +1351,16 @@ async fn main() -> Result<()> {
         std::fs::create_dir_all(&args.output)?;
     }
 
-    let mut scraper = Scraper::new(args.delay_ms, args.debug, args.output.clone())?;
+    let content_type = detect_content_type(&args.url);
+    let mut scraper = Scraper::new(args.delay_ms, args.debug, args.output.clone(), content_type)?;
     
     if args.debug {
         println!("Mode débogage activé - les pages HTML seront sauvegardées pour analyse");
     }
 
     // Scrape films
-    let films = scraper.scrape_films(&args.url).await?;
+    let normalized_url = normalize_url(&args.url);
+    let rated = scraper.scrape_rated(&normalized_url).await?;
 
     // Scrape reviews
     let reviews = if args.skip_reviews {
@@ -1289,25 +1380,25 @@ async fn main() -> Result<()> {
     scraper.progress.start_step(4, "Export CSV", 2);
 
     // Export films
-    let mut films_split = false;
-    let mut films_count = 0;
-    let mut films_parts: Vec<(std::path::PathBuf, usize)> = Vec::new();
-    if !films.is_empty() {
+    let mut rated_split = false;
+    let mut rated_count = 0;
+    let mut rated_parts: Vec<(std::path::PathBuf, usize)> = Vec::new();
+    if !rated.is_empty() {
         let entries = if !reviews.is_empty() {
-            merge_data(films, reviews)
+            merge_data(rated, reviews)
         } else {
-            films.into_iter().map(|f| ExportEntry {
-                title: f.title,
-                rating10: convert_rating(&f.rating),
+            rated.into_iter().map(|r| ExportEntry {
+                title: r.title,
+                rating10: convert_rating(&r.rating),
                 review: String::new(),
             }).collect()
         };
-        films_count = entries.len();
+        rated_count = entries.len();
 
         // Split into parts if too large for Letterboxd's import limit
         const MAX_ROWS_PER_FILE: usize = 2500;
         if entries.len() > MAX_ROWS_PER_FILE {
-            films_split = true;
+            rated_split = true;
             let total_parts = (entries.len() + MAX_ROWS_PER_FILE - 1) / MAX_ROWS_PER_FILE;
             for (part_idx, chunk) in entries.chunks(MAX_ROWS_PER_FILE).enumerate() {
                 let part_num = part_idx + 1;
@@ -1318,7 +1409,7 @@ async fn main() -> Result<()> {
                     part_writer.serialize(entry)?;
                 }
                 part_writer.flush()?;
-                films_parts.push((part_path, chunk.len()));
+                rated_parts.push((part_path, chunk.len()));
             }
             let _ = total_parts; // used for messaging below
         } else {
@@ -1329,7 +1420,7 @@ async fn main() -> Result<()> {
                 writer.serialize(entry)?;
             }
             writer.flush()?;
-            films_parts.push((path, entries.len()));
+            rated_parts.push((path, entries.len()));
         }
     }
     scraper.progress.update(1);
@@ -1353,15 +1444,15 @@ async fn main() -> Result<()> {
     scraper.progress.finish();
 
     // Afficher le récapitulatif
-    println!("  Films : {}", films_count);
-    if films_split {
-        println!("    Découpé en {} fichiers (limite de 2500 lignes par Letterboxd) :", films_parts.len());
-        for (i, (p, n)) in films_parts.iter().enumerate() {
+    let export_label = match content_type { ContentType::Films => "Films", ContentType::Series => "Series", }; println!("  {} : {}", export_label, rated_count);
+    if rated_split {
+        println!("    Découpé en {} fichiers (limite de 2500 lignes par Letterboxd) :", rated_parts.len());
+        for (i, (p, n)) in rated_parts.iter().enumerate() {
             println!("      Fichier {} : {} lignes — {}", i + 1, n, p.display());
         }
         println!("    Importez chaque fichier séparément sur https://letterboxd.com/import/import/");
-    } else if !films_parts.is_empty() {
-        println!("    Exporté vers {}", films_parts[0].0.display());
+    } else if !rated_parts.is_empty() {
+        println!("    Exporté vers {}", rated_parts[0].0.display());
     }
     if let Some(ref wp) = wishlist_path {
         println!("  Wishlist : {} films — {}", wishlist.len(), wp.display());
