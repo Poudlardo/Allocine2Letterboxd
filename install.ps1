@@ -1,86 +1,64 @@
-#Requires -Version 5.1
-Set-StrictMode -Version Latest
+# Allocine2Letterboxd - Installeur Windows
+# Usage: irm https://raw.githubusercontent.com/Poudlardo/Allocine2Letterboxd/main/install.ps1 | iex
+
 $ErrorActionPreference = "Stop"
 
-function Write-Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
-function Write-Ok($msg)   { Write-Host "  [OK] $msg" -ForegroundColor Green }
-function Write-Warn($msg) { Write-Host "  [!]  $msg" -ForegroundColor Yellow }
-function Write-Err($msg)  { Write-Host "  [X]  $msg" -ForegroundColor Red; exit 1 }
+$REPO = "Poudlardo/Allocine2Letterboxd"
+$BINARY_NAME = "allocine2letterboxd.exe"
 
-$ALLOCINE_URL = Read-Host "Lien de ton profil AlloCine"
+function Write-Step($msg) { Write-Host "[*] $msg" -ForegroundColor Cyan }
+function Write-Ok($msg)   { Write-Host "[OK] $msg" -ForegroundColor Green }
+function Write-Err($msg)  { Write-Host "[ERREUR] $msg" -ForegroundColor Red; exit 1 }
+
+# Demande de l'URL
+$ALLOCINE_URL = Read-Host "  Entrez l'URL de votre profil Allocine"
+
+# Validation de l'URL
+if ($ALLOCINE_URL -notmatch '^https://www\.allocine\.fr/membre-[A-Z0-9]') {
+    Write-Host ""
+    Write-Err "URL Allocine invalide ! Veuillez fournir une URL comme : https://www.allocine.fr/membre-Z20060328181626557554912/films/"
+}
 
 Write-Host ""
-Write-Host "  Allocine2Letterboxd - Installateur Windows" -ForegroundColor White
-Write-Host "  ============================================" -ForegroundColor White
 
-$REPO_URL    = "https://github.com/Poudlardo/Allocine2Letterboxd.git"
-$REPO_BRANCH = "main"
-$INSTALL_DIR = Join-Path $env:USERPROFILE "Allocine2Letterboxd"
-
-# ── Recharger le PATH depuis le registre ──────────────────────────────────────
-function Refresh-Path {
-    $machine = [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
-    $user    = [System.Environment]::GetEnvironmentVariable("PATH", "User")
-    $env:PATH = "$machine;$user"
+# Téléchargement du dernier release
+Write-Step "Téléchargement du dernier release..."
+$apiUrl = "https://api.github.com/repos/$REPO/releases/latest"
+try {
+    $release = Invoke-RestMethod -Uri $apiUrl -Headers @{ "User-Agent" = "allocine2letterboxd-installer" }
+} catch {
+    Write-Err "Échec de la récupération du dernier release : $_"
 }
 
-# ── Winget ────────────────────────────────────────────────────────────────────
-Write-Step "Verification de winget"
-if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-    Write-Warn "winget introuvable - ouverture du Microsoft Store pour App Installer..."
-    Start-Process "ms-windows-store://pdp/?productid=9NBLGGH4NNS1"
-    Write-Host "  Installez 'App Installer' puis relancez ce script." -ForegroundColor Yellow
-    exit 0
-}
-Write-Ok "winget disponible"
-
-# ── Git ───────────────────────────────────────────────────────────────────────
-Write-Step "Verification de Git"
-if (Get-Command git -ErrorAction SilentlyContinue) {
-    Write-Ok "Git deja installe - $(git --version)"
-} else {
-    Write-Warn "Git introuvable, installation via winget..."
-    winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements
-    Refresh-Path
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        Write-Warn "Redemarrez PowerShell si git n'est pas reconnu, puis relancez le script."
-        exit 0
-    }
-    Write-Ok "Git installe - $(git --version)"
+$asset = $release.assets | Where-Object { $_.name -eq $BINARY_NAME } | Select-Object -First 1
+if (-not $asset) {
+    Write-Err "Aucun binaire Windows trouvé dans le dernier release. Attendu : $BINARY_NAME"
 }
 
-# ── Node.js ───────────────────────────────────────────────────────────────────
-Write-Step "Verification de Node.js"
-if (Get-Command node -ErrorAction SilentlyContinue) {
-    Write-Ok "Node.js deja installe - $(node --version)"
-} else {
-    Write-Warn "Node.js introuvable, installation via winget..."
-    winget install --id OpenJS.NodeJS.LTS -e --source winget --accept-package-agreements --accept-source-agreements
-    Refresh-Path
-    if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-        Write-Warn "Redemarrez PowerShell si node n'est pas reconnu, puis relancez le script."
-        exit 0
-    }
-    Write-Ok "Node.js installe - $(node --version)"
+$downloadUrl = $asset.browser_download_url
+$tempExe = Join-Path $env:TEMP $BINARY_NAME
+
+try {
+    Invoke-WebRequest -Uri $downloadUrl -OutFile $tempExe -UseBasicParsing
+} catch {
+    Write-Err "Échec du téléchargement du binaire : $_"
 }
+Write-Ok "Binaire téléchargé"
 
-# ── Depot ─────────────────────────────────────────────────────────────────────
-Write-Step "Recuperation du projet"
-if (Test-Path (Join-Path $INSTALL_DIR ".git")) {
-    Write-Warn "Dossier deja present, mise a jour..."
-    git -C $INSTALL_DIR pull --ff-only
-    Write-Ok "Projet mis a jour"
-} else {
-    git clone --branch $REPO_BRANCH $REPO_URL $INSTALL_DIR
-    Write-Ok "Projet clone dans $INSTALL_DIR (branche : $REPO_BRANCH)"
-}
+# Lancement du scraping
+Write-Host ""
+Write-Host "[*] Démarrage du scraping..." -ForegroundColor Cyan
+Write-Host ""
+& $tempExe $ALLOCINE_URL
 
-# ── Dependances npm ───────────────────────────────────────────────────────────
-Write-Step "Installation des dependances"
-Set-Location $INSTALL_DIR
-npm install --silent
-Write-Ok "Dependances installees"
+# Nettoyage
+Remove-Item $tempExe -ErrorAction SilentlyContinue
 
-# ── Lancement ─────────────────────────────────────────────────────────────────
-Write-Host "`n  Tout est pret ! Lancement...`n" -ForegroundColor White
-node index.js $ALLOCINE_URL
+Write-Host ""
+Write-Ok "Terminé !"
+Write-Host ""
+Write-Host "Prochaines étapes :"
+Write-Host "  Importer vers Letterboxd :"
+Write-Host "    - allocine-films*.csv -> https://letterboxd.com/import/"
+Write-Host "    - allocine-films-a-voir.csv -> https://letterboxd.com/watchlist/"
+Write-Host ""
