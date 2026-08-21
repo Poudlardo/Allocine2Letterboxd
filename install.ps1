@@ -3,6 +3,8 @@
 
 $ErrorActionPreference = "Stop"
 
+
+
 $REPO = "Poudlardo/Allocine2Letterboxd"
 $BINARY_NAME = "allocine2letterboxd.exe"
 
@@ -19,6 +21,17 @@ if ($ALLOCINE_URL -notmatch '^https://www\.allocine\.fr/membre-[A-Z0-9]') {
     Write-Err "URL Allocine invalide ! Veuillez fournir une URL comme : https://www.allocine.fr/membre-Z20060328181626557554912/films/"
 }
 
+Write-Host ""
+# Bannière ASCII
+$banner = @"
+       _____   .__   .__                   .__         ________  .____               __     __                   ___.                        .___
+      /  _  \  |  |  |  |    ____    ____  |__|  ____  \_____  \ |    |      ____  _/  |_ _/  |_   ____  _______ \_ |__    ____  ___  ___  __| _/
+     /  /_\  \ |  |  |  |   /  _ \ _/ ___\ |  | /    \  /  ____/ |    |    _/ __ \ \   __\\   __\_/ __ \ \_  __ \ | __ \  /  _ \ \  \/  / / __ | 
+    /    |    \|  |__|  |__(  <_> )\  \___ |  ||   |  \/       \ |    |___ \  ___/  |  |   |  |  \  ___/  |  | \/ | \_\ \(  <_> ) >    < / /_/ | 
+    \____|__  /|____/|____/ \____/  \___  >|__||___|  /\_______ \|_______ \ \___  > |__|   |__|   \___  > |__|    |___  / \____/ /__/\_ \\____ | 
+            \/                          \/          \/         \/        \/     \/                    \/              \/               \/     \/ 
+"@
+Write-Host $banner -ForegroundColor Cyan
 Write-Host ""
 
 # Téléchargement du dernier release
