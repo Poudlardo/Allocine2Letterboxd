@@ -3,7 +3,7 @@
 
 use anyhow::Result;
 use clap::Parser;
-use csv::WriterBuilder;
+use csv::{QuoteStyle, WriterBuilder};
 use futures::stream::{self, StreamExt};
 use regex::Regex;
 use reqwest::Client;
@@ -22,9 +22,21 @@ fn strip_html_tags(s: &str) -> String {
     // Simple regex to remove HTML tags
     let re = Regex::new(r"<[^>]*>").unwrap();
     let without_tags = re.replace_all(s, "");
-    // Remove "Lire plus" link text and trailing dots that Allocine appends
-    // to truncated reviews
-    let cleaned = without_tags.replace('\n', " ").replace('\r', " ");
+    // Decode common HTML entities
+    let decoded = without_tags
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'");
+    // Replace newlines and Unicode line separators (U+2028, U+2029) with spaces
+    let cleaned = decoded
+        .replace('\n', " ")
+        .replace('\r', " ")
+        .replace('\u{2028}', " ")
+        .replace('\u{2029}', " ");
     // Remove "... Lire plus" or "...                  Lire plus" artifacts
     let re_lire = Regex::new(r"\s*\.\.\.\s*Lire plus\s*").unwrap();
     let cleaned = re_lire.replace_all(&cleaned, "").to_string();
@@ -1169,6 +1181,21 @@ fn normalize_title(title: &str) -> String {
     cleaned.to_lowercase().trim().to_string()
 }
 
+/// Sanitize text fields for CSV export: replace straight double quotes
+/// with typographic quotes and remove Unicode line separators (U+2028/U+2029)
+/// that some editors treat as line breaks.
+fn sanitize_csv_field(s: &str) -> String {
+    s.replace('"', "\u{201C}")
+        .replace('"', "\u{201D}")
+        .replace('\u{2028}', " ")
+        .replace('\u{2029}', " ")
+}
+
+/// Write a UTF-8 BOM so Excel detects encoding correctly.
+fn write_bom(file: &mut File) -> io::Result<()> {
+    file.write_all(&[0xEF, 0xBB, 0xBF])
+}
+
 fn merge_data(films: Vec<Film>, reviews: Vec<Review>) -> Vec<ExportEntry> {
     // Create a map from normalized film title to review
     let mut review_map: HashMap<String, String> = HashMap::new();
@@ -1188,9 +1215,9 @@ fn merge_data(films: Vec<Film>, reviews: Vec<Review>) -> Vec<ExportEntry> {
         let norm_title = normalize_title(&film.title);
         let review = review_map.get(&norm_title).cloned().unwrap_or_default();
         entries.push(ExportEntry {
-            title: film.title.clone(),
+            title: sanitize_csv_field(&film.title),
             rating10: convert_rating(&film.rating),
-            review: clean_review(&review),
+            review: sanitize_csv_field(&clean_review(&review)),
         });
     }
     
@@ -1297,7 +1324,7 @@ async fn main() -> Result<()> {
             merge_data(films, reviews)
         } else {
             films.into_iter().map(|f| ExportEntry {
-                title: f.title,
+                title: sanitize_csv_field(&f.title),
                 rating10: convert_rating(&f.rating),
                 review: String::new(),
             }).collect()
@@ -1312,7 +1339,9 @@ async fn main() -> Result<()> {
             for (part_idx, chunk) in entries.chunks(MAX_ROWS_PER_FILE).enumerate() {
                 let part_num = part_idx + 1;
                 let part_path = args.output.join(format!("allocine-films-part{}.csv", part_num));
-                let mut part_writer = WriterBuilder::new().has_headers(false).from_writer(File::create(&part_path)?);
+                let mut part_file = File::create(&part_path)?;
+                write_bom(&mut part_file)?;
+                let mut part_writer = WriterBuilder::new().has_headers(false).quote_style(QuoteStyle::Always).from_writer(part_file);
                 part_writer.write_record(&["Title", "Rating10", "Review"])?;
                 for entry in chunk {
                     part_writer.serialize(entry)?;
@@ -1323,7 +1352,9 @@ async fn main() -> Result<()> {
             let _ = total_parts; // used for messaging below
         } else {
             let path = args.output.join("allocine-films.csv");
-            let mut writer = WriterBuilder::new().has_headers(false).from_writer(File::create(&path)?);
+            let mut file = File::create(&path)?;
+            write_bom(&mut file)?;
+            let mut writer = WriterBuilder::new().has_headers(false).quote_style(QuoteStyle::Always).from_writer(file);
             writer.write_record(&["Title", "Rating10", "Review"])?;
             for entry in &entries {
                 writer.serialize(entry)?;
@@ -1337,10 +1368,12 @@ async fn main() -> Result<()> {
     // Export wishlist
     let wishlist_path = if !wishlist.is_empty() {
         let path = args.output.join("allocine-films-a-voir.csv");
-        let mut writer = WriterBuilder::new().has_headers(false).from_writer(File::create(&path)?);
+        let mut file = File::create(&path)?;
+        write_bom(&mut file)?;
+        let mut writer = WriterBuilder::new().has_headers(false).quote_style(QuoteStyle::Always).from_writer(file);
         writer.write_record(&["Title"])?;
         for item in &wishlist {
-            writer.serialize(item)?;
+            writer.serialize(WishlistItem { title: sanitize_csv_field(&item.title) })?;
         }
         writer.flush()?;
         Some(path)
