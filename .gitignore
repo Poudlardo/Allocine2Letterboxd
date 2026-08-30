@@ -21,3 +21,5 @@ allocine-films-part*.csv
 allocine-films-a-voir.csv
 *csv
 *.html
+
+/venv/
